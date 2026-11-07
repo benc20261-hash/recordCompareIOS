@@ -1,24 +1,11 @@
 # RecordCompareIOS
 
-This repository contains a SwiftUI app for the ProductCompare app with a UI and flow intentionally aligned to the Android version.
+A native SwiftUI iOS port of ProductCompare. The goal is to preserve the Android app's five modules and interaction patterns: Catalog, Compare Products, Smart Add Product, Product Reviews, and Data & Backup.
 
-## What is included
-- Catalog view
-- Compare products view
-- Smart Add Product flow
-- Product reviews
-- Data & Backup screen
-- Local JSON storage
-- Android ZIP backup import support
+## Open and run
+Open `RecordCompareIOS.xcodeproj` on a Mac with Xcode, choose the `RecordCompareIOS` scheme, connect an iPhone, select it as the run destination, and press **Run**. Set your Apple ID under **Signing & Capabilities** if Xcode asks. The project targets iOS 17 or later.
 
-## How to open in Xcode
-1. Open Xcode.
-2. Choose `Open` and select this repository folder.
-3. Xcode will recognize the Swift Package.
-4. Connect an iPhone to your Mac and select it as the run destination.
-5. Press Run.
+You can also download the repository as a ZIP from GitHub and open the `.xcodeproj` inside it. GitHub stores the source project; it does not install the app directly onto an iPhone.
 
-## Notes
-- This is the initial port and keeps data local/offline.
-- Android ZIP compatibility is implemented at the data model layer, with import/export handled by the app store.
-- No online backend is included.
+## Current status
+This is an in-progress port. The native project and initial catalog/comparison UI are in place. The Android ZIP archive import/export, durable local persistence, and feature-level parity are still being implemented and tested. No server-based sync is planned; app data is intended to remain local to the device.

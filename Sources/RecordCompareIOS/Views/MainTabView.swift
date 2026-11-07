@@ -9,7 +9,7 @@ struct MainTabView: View {
             tabButtons
             contentView
         }
-        .background(Color(UIColor.systemGray6))
+        .background(Color(uiColor: .systemGray6))
     }
 
     private var headerView: some View {
@@ -28,69 +28,64 @@ struct MainTabView: View {
 
                 Spacer()
 
-                Capsule()
-                    .frame(width: 52, height: 28)
-                    .foregroundStyle(.blue.opacity(0.15))
-                    .overlay(Text("Live").font(.system(size: 12, weight: .semibold)).foregroundStyle(.blue))
+                Text("Live")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.indigo)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.indigo.opacity(0.1), in: Capsule())
             }
             .padding(.horizontal)
             .padding(.top, 12)
 
             Divider()
         }
+        .background(.white)
     }
 
     private var tabButtons: some View {
-        HStack(spacing: 8) {
-            ForEach(ProductStore.Tab.allCases, id: \ .self) { tab in
-                Button {
-                    store.selectedTab = tab
-                } label: {
-                    HStack {
-                        Image(systemName: tabIcon(for: tab))
-                        Text(tab.rawValue)
-                            .font(.system(size: 14, weight: .semibold))
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(ProductStore.Tab.allCases, id: \.self) { tab in
+                    Button {
+                        store.selectedTab = tab
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: tabIcon(for: tab))
+                            Text(tab.rawValue)
+                                .lineLimit(1)
+                        }
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(store.selectedTab == tab ? .white : Color.primary)
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 15)
+                        .background(store.selectedTab == tab ? Color.indigo : Color(uiColor: .systemGray6), in: Capsule())
                     }
-                    .foregroundStyle(store.selectedTab == tab ? .indigo : .primary)
-                    .padding(.vertical, 10)
-                    .padding(.horizontal, 12)
-                    .frame(maxWidth: .infinity)
-                    .background(store.selectedTab == tab ? Color.indigo.opacity(0.12) : Color.clear)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(store.selectedTab == tab ? Color.indigo : Color.gray.opacity(0.35), lineWidth: 1)
-                    )
                 }
             }
+            .padding(.horizontal)
+            .padding(.vertical, 10)
         }
-        .padding(.horizontal)
-        .padding(.bottom, 8)
+        .background(.white)
     }
 
-    private var contentView: some View {
-        Group {
-            switch store.selectedTab {
-            case .catalog:
-                CatalogView()
-            case .compare:
-                CompareView()
-            case .smartAdd:
-                SmartAddView()
-            case .reviews:
-                ReviewsView()
-            case .backup:
-                DataBackupView()
-            }
+    @ViewBuilder private var contentView: some View {
+        switch store.selectedTab {
+        case .catalog: CatalogView()
+        case .compare: CompareView()
+        case .smartAdd: SmartAddView()
+        case .reviews: ReviewsView()
+        case .backup: DataBackupView()
         }
     }
 
     private func tabIcon(for tab: ProductStore.Tab) -> String {
         switch tab {
-        case .catalog: return "square.grid.2x2.fill"
-        case .compare: return "arrow.left.arrow.right"
-        case .smartAdd: return "sparkles"
-        case .reviews: return "doc.text"
-        case .backup: return "archivebox"
+        case .catalog: "square.grid.2x2.fill"
+        case .compare: "arrow.left.arrow.right"
+        case .smartAdd: "sparkles"
+        case .reviews: "doc.text"
+        case .backup: "archivebox"
         }
     }
 }
