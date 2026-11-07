@@ -5,36 +5,99 @@ struct ReviewsView: View {
     @EnvironmentObject private var store: ProductStore
     @State private var reviewToEdit: Review?
     @State private var showingEditor = false
+    @State private var searchText = ""
+    @State private var sortOrder: ReviewSortOrder = .newest
 
     private var sortedReviews: [Review] {
-        store.reviews.sorted { $0.reviewNumber > $1.reviewNumber }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let matching = store.reviews.filter { review in
+            guard !query.isEmpty else { return true }
+            let searchable = [
+                review.title ?? "",
+                review.body.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression),
+                review.authorName ?? "",
+                review.productTitles.joined(separator: " ")
+            ].joined(separator: " ").lowercased()
+            return searchable.contains(query)
+        }
+
+        switch sortOrder {
+        case .newest:
+            return matching.sorted { $0.reviewNumber > $1.reviewNumber }
+        case .oldest:
+            return matching.sorted { $0.reviewNumber < $1.reviewNumber }
+        case .highestRated:
+            return matching.sorted { ($0.rating ?? 0) > ($1.rating ?? 0) }
+        }
     }
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(sortedReviews) { review in
-                    NavigationLink {
-                        ReviewDetailView(review: review) {
-                            reviewToEdit = review
-                            showingEditor = true
+                if !store.reviews.isEmpty {
+                    Section {
+                        HStack(spacing: 10) {
+                            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                            TextField("Search reviews", text: $searchText)
+                                .textInputAutocapitalization(.never)
+                            if !searchText.isEmpty {
+                                Button { searchText = "" } label: {
+                                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Clear review search")
+                            }
                         }
-                    } label: {
-                        ReviewRow(review: review)
                     }
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            store.reviews.removeAll { $0.id == review.id }
+                    .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
+                }
+
+                Section {
+                    ForEach(sortedReviews) { review in
+                        NavigationLink {
+                            ReviewDetailView(review: review) {
+                                reviewToEdit = review
+                                showingEditor = true
+                            }
                         } label: {
-                            Label("Delete", systemImage: "trash")
+                            ReviewRow(review: review)
                         }
-                        Button {
-                            reviewToEdit = review
-                            showingEditor = true
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                store.reviews.removeAll { $0.id == review.id }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            Button {
+                                reviewToEdit = review
+                                showingEditor = true
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            .tint(.indigo)
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text("\(sortedReviews.count) reviews")
+                        Spacer()
+                        Menu {
+                            ForEach(ReviewSortOrder.allCases) { order in
+                                Button {
+                                    sortOrder = order
+                                } label: {
+                                    if sortOrder == order {
+                                        Label(order.title, systemImage: "checkmark")
+                                    } else {
+                                        Text(order.title)
+                                    }
+                                }
+                            }
                         } label: {
-                            Label("Edit", systemImage: "pencil")
+                            Label(sortOrder.title, systemImage: "arrow.up.arrow.down")
+                                .labelStyle(.titleAndIcon)
                         }
-                        .tint(.indigo)
+                        .textCase(nil)
                     }
                 }
             }
@@ -45,9 +108,11 @@ struct ReviewsView: View {
                         systemImage: "text.bubble",
                         description: Text("Add reviews to keep notes and product research together.")
                     )
+                } else if sortedReviews.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
                 }
             }
-            .listStyle(.plain)
+            .listStyle(.insetGrouped)
             .navigationTitle("Product Reviews")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -63,6 +128,21 @@ struct ReviewsView: View {
             .sheet(isPresented: $showingEditor, onDismiss: { reviewToEdit = nil }) {
                 ReviewEditorView(review: reviewToEdit)
             }
+        }
+    }
+}
+
+private enum ReviewSortOrder: String, CaseIterable, Identifiable {
+    case newest
+    case oldest
+    case highestRated
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .newest: "Newest first"
+        case .oldest: "Oldest first"
+        case .highestRated: "Highest rated"
         }
     }
 }
