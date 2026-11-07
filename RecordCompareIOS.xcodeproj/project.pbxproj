@@ -4,19 +4,18 @@
 	classes = {};
 	objectVersion = 56;
 	objects = {
-
 /* Begin PBXBuildFile section */
-		A10000000000000000000001 /* RecordCompareIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* RecordCompareIOSApp.swift */; };
-		A10000000000000000000002 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* Models.swift */; };
-		A10000000000000000000003 /* DataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* DataStore.swift */; };
-		A10000000000000000000004 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* MainTabView.swift */; };
-		A10000000000000000000005 /* CatalogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* CatalogView.swift */; };
-		A10000000000000000000006 /* CompareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* CompareView.swift */; };
-		A10000000000000000000007 /* SmartAddView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000007 /* SmartAddView.swift */; };
-		A10000000000000000000008 /* ReviewsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* ReviewsView.swift */; };
-		A10000000000000000000009 /* DataBackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* DataBackupView.swift */; };
+		A10000000000000000000001 /* RecordCompareIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001; };
+		A10000000000000000000002 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002; };
+		A10000000000000000000003 /* DataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003; };
+		A10000000000000000000004 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004; };
+		A10000000000000000000005 /* CatalogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005; };
+		A10000000000000000000006 /* CompareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006; };
+		A10000000000000000000007 /* SmartAddView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000007; };
+		A10000000000000000000008 /* ReviewsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008; };
+		A10000000000000000000009 /* DataBackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009; };
+		A10000000000000000000010 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000002; };
 /* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
 		B10000000000000000000001 /* RecordCompareIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordCompareIOSApp.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -29,42 +28,40 @@
 		B10000000000000000000009 /* DataBackupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataBackupView.swift; sourceTree = "<group>"; };
 		C10000000000000000000001 /* RecordCompareIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RecordCompareIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
-
 /* Begin PBXFrameworksBuildPhase section */
-		D10000000000000000000001 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		D10000000000000000000001 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000010,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
-
 /* Begin PBXGroup section */
-		E10000000000000000000001 = {isa = PBXGroup; children = (E10000000000000000000002 /* Sources */, C10000000000000000000001 /* Products */,); sourceTree = "<group>"; };
-		E10000000000000000000002 /* Sources */ = {isa = PBXGroup; children = (B10000000000000000000001, B10000000000000000000002, B10000000000000000000003, E10000000000000000000003 /* Views */,); path = Sources/RecordCompareIOS; sourceTree = SOURCE_ROOT; };
+		E10000000000000000000001 = {isa = PBXGroup; children = (E10000000000000000000002, E10000000000000000000004,); sourceTree = "<group>"; };
+		E10000000000000000000002 /* Sources */ = {isa = PBXGroup; children = (B10000000000000000000001, B10000000000000000000002, B10000000000000000000003, E10000000000000000000003,); path = Sources/RecordCompareIOS; sourceTree = SOURCE_ROOT; };
 		E10000000000000000000003 /* Views */ = {isa = PBXGroup; children = (B10000000000000000000004, B10000000000000000000005, B10000000000000000000006, B10000000000000000000007, B10000000000000000000008, B10000000000000000000009,); path = Views; sourceTree = "<group>"; };
 		E10000000000000000000004 /* Products */ = {isa = PBXGroup; children = (C10000000000000000000001,); name = Products; sourceTree = "<group>"; };
 /* End PBXGroup section */
-
 /* Begin PBXSourcesBuildPhase section */
 		F10000000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003, A10000000000000000000004, A10000000000000000000005, A10000000000000000000006, A10000000000000000000007, A10000000000000000000008, A10000000000000000000009,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
-
 /* Begin PBXNativeTarget section */
-		110000000000000000000001 /* RecordCompareIOS */ = {isa = PBXNativeTarget; buildConfigurationList = 210000000000000000000001; buildPhases = (F10000000000000000000001, D10000000000000000000001,); buildRules = (); dependencies = (); name = RecordCompareIOS; productName = RecordCompareIOS; productReference = C10000000000000000000001; productType = "com.apple.product-type.application"; };
+		110000000000000000000001 /* RecordCompareIOS */ = {isa = PBXNativeTarget; buildConfigurationList = 210000000000000000000001; buildPhases = (F10000000000000000000001, D10000000000000000000001,); buildRules = (); dependencies = (); name = RecordCompareIOS; packageProductDependencies = (C10000000000000000000002,); productName = RecordCompareIOS; productReference = C10000000000000000000001; productType = "com.apple.product-type.application"; };
 /* End PBXNativeTarget section */
-
 /* Begin PBXProject section */
-		120000000000000000000001 /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastUpgradeCheck = 1600;}; buildConfigurationList = 220000000000000000000001; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base,); mainGroup = E10000000000000000000001; productRefGroup = E10000000000000000000004; projectDirPath = ""; projectRoot = ""; targets = (110000000000000000000001,); };
+		120000000000000000000001 /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastUpgradeCheck = 1600;}; buildConfigurationList = 220000000000000000000001; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base,); mainGroup = E10000000000000000000001; packageReferences = (C10000000000000000000003,); productRefGroup = E10000000000000000000004; projectDirPath = ""; projectRoot = ""; targets = (110000000000000000000001,); };
 /* End PBXProject section */
-
 /* Begin XCBuildConfiguration section */
 		310000000000000000000001 /* Debug app */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = ProductCompare; INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.productivity; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.benc20261.recordcompareios; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2";}; name = Debug; };
 		310000000000000000000002 /* Release app */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = ProductCompare; INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.productivity; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.benc20261.recordcompareios; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2";}; name = Release; };
 		320000000000000000000001 /* Project Debug */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0;}; name = Debug; };
 		320000000000000000000002 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0;}; name = Release; };
 /* End XCBuildConfiguration section */
-
 /* Begin XCConfigurationList section */
 		210000000000000000000001 /* Build configuration list for PBXNativeTarget */ = {isa = XCConfigurationList; buildConfigurations = (310000000000000000000001, 310000000000000000000002,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 		220000000000000000000001 /* Build configuration list for PBXProject */ = {isa = XCConfigurationList; buildConfigurations = (320000000000000000000001, 320000000000000000000002,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
-
+/* Begin XCRemoteSwiftPackageReference section */
+		C10000000000000000000003 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/weichsel/ZIPFoundation.git"; requirement = {kind = upToNextMajorVersion; minimumVersion = 0.9.19;}; };
+/* End XCRemoteSwiftPackageReference section */
+/* Begin XCSwiftPackageProductDependency section */
+		C10000000000000000000002 /* ZIPFoundation */ = {isa = XCSwiftPackageProductDependency; package = C10000000000000000000003; productName = ZIPFoundation; };
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 120000000000000000000001;
 }
