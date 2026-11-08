@@ -83,7 +83,7 @@ struct ProductCard: View {
                 Button {
                     store.toggleCompare(product.id)
                     if store.comparedProductIDs.contains(product.id) { store.selectedTab = .compare }
-                } label: { Label(store.comparedProductIDs.contains(product.id) ? "Added" : "Compare", systemImage: store.comparedProductIDs.contains(product.id) ? "checkmark" : "plus").font(.system(size: 14, weight: .semibold)) }
+                } label: { Label(store.comparedProductIDs.contains(product.id) ? "Added" : "Compare", systemImage: store.comparedProductIDs.contains(product.id) ? "checkmark" : "plus").font(.system(size: 13, weight: .semibold)).padding(.horizontal, 12).padding(.vertical, 8) }
                     .buttonStyle(.bordered).tint(.indigo)
             }.padding(14)
             Button(action: onOpen) {
@@ -98,9 +98,9 @@ struct ProductCard: View {
                 }
             }.buttonStyle(.plain).padding(.horizontal, 12)
             VStack(alignment: .leading, spacing: 12) {
-                HStack { ForEach(product.tags.prefix(4), id: \.self) { tag in Text(tag).font(.system(size: 13)).padding(.horizontal, 10).padding(.vertical, 6).background(Color(uiColor: .systemGray6), in: RoundedRectangle(cornerRadius: 8)) } }
+                HStack { ForEach(product.tags.prefix(4), id: \.self) { tag in Text(tag).font(.system(size: 13)).padding(.horizontal, 10).padding(.vertical, 6).background(Color(uiColor: .systemGray6), in: Capsule()) } }
                 Button(action: onOpen) { Text(product.name).font(.system(size: 23, weight: .bold)).foregroundStyle(.primary).frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain)
-                if !product.overview.isEmpty { Text(product.overview.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)).font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(3) }
+                if !product.overview.isEmpty { Text(product.overview.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)).font(.system(size: 15)).foregroundStyle(.secondary) }
                 if !productSpecs.isEmpty {
                     VStack(spacing: 0) {
                         ForEach(productSpecs.prefix(5)) { spec in
@@ -128,21 +128,57 @@ private struct ProductDetailSheet: View {
 
     private var specs: [Specification] { store.specifications.filter { $0.productId == product.id || $0.productTitle == product.name }.sorted { $0.order < $1.order } }
     private var linkedReviews: [Review] { store.reviews.filter { $0.productIds.contains(product.id) || $0.productTitles.contains(product.name) } }
+    private var galleryImages: [URL] {
+        product.pictures.compactMap { store.localURL(for: $0) }
+    }
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    if let first = product.pictures.first, let url = store.localURL(for: first), let image = UIImage(contentsOfFile: url.path) { Image(uiImage: image).resizable().scaledToFit().listRowInsets(EdgeInsets()) }
+                    if let first = product.pictures.first, let url = store.localURL(for: first), let image = UIImage(contentsOfFile: url.path) {
+                        Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: .infinity, minHeight: 220)
+                    }
                     Text(product.brand).foregroundStyle(.indigo)
                     Text(product.overview)
                 }
+
+                if !galleryImages.isEmpty {
+                    Section("Gallery") {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(galleryImages, id: \.self) { url in
+                                    if let image = UIImage(contentsOfFile: url.path) {
+                                        Image(uiImage: image)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 110, height: 110)
+                                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+
                 Section("Specifications") {
-                    ForEach(specs) { spec in HStack(alignment: .top) { Text(spec.specName).foregroundStyle(.secondary); Spacer(); Text([spec.details, spec.unit ?? ""].filter { !$0.isEmpty }.joined(separator: " ")).multilineTextAlignment(.trailing) } }
+                    ForEach(specs) { spec in
+                        HStack(alignment: .top) {
+                            Text(spec.specName).foregroundStyle(.secondary)
+                            Spacer()
+                            Text([spec.details, spec.unit ?? ""].filter { !$0.isEmpty }.joined(separator: " ")).fontWeight(.semibold).multilineTextAlignment(.trailing)
+                        }
+                    }
                     Button { editing = true } label: { Label("Add specification", systemImage: "plus") }
                 }
                 Section("Reviews (\(linkedReviews.count))") {
-                    ForEach(linkedReviews) { review in VStack(alignment: .leading) { Text(review.title ?? "Review #\(review.reviewNumber)").font(.headline); Text(review.body.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)).lineLimit(3).foregroundStyle(.secondary) } }
+                    ForEach(linkedReviews) { review in
+                        VStack(alignment: .leading) {
+                            Text(review.title ?? "Review #\(review.reviewNumber)").font(.headline)
+                            Text(review.body.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)).foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 Section {
                     Button(role: .destructive) { store.deleteProduct(product.id); dismiss() } label: { Label("Delete product", systemImage: "trash") }
@@ -170,7 +206,8 @@ private struct AddSpecificationView: View {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                     ToolbarItem(placement: .confirmationAction) { Button("Save") {
                         let nextOrder = (store.specifications.filter { $0.productId == product.id }.map(\.order).max() ?? 0) + 1
-                        store.specifications.append(Specification(id: "spec_" + String(UUID().uuidString.prefix(12)), specName: name, details: details, order: nextOrder, productId: product.id, productTitle: product.name, unit: unit.isEmpty ? nil : unit, pictures: [])); dismiss()
+                        store.specifications.append(Specification(id: "spec_" + String(UUID().uuidString.prefix(12)), specName: name, details: details, order: nextOrder, productId: product.id, productTitle: product.name, unit: unit.isEmpty ? nil : unit, pictures: []))
+                        dismiss()
                     }.disabled(name.isEmpty) }
                 }
         }
