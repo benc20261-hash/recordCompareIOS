@@ -8,6 +8,7 @@ struct RecordCompareIOSApp: App {
         WindowGroup {
             MainTabView()
                 .environmentObject(store)
+                .preferredColorScheme(.light)
                 .onAppear {
                     store.loadIfNeeded()
                 }
