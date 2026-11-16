@@ -6,8 +6,25 @@ struct MainTabView: View {
     var body: some View {
         VStack(spacing: 0) {
             headerView
-            tabButtons
-            contentView
+            TabView(selection: $store.selectedTab) {
+                CatalogView()
+                    .tabItem { Label("Catalog", systemImage: tabIcon(for: .catalog)) }
+                    .tag(ProductStore.Tab.catalog)
+                CompareView()
+                    .tabItem { Label("Compare", systemImage: tabIcon(for: .compare)) }
+                    .tag(ProductStore.Tab.compare)
+                SmartAddView()
+                    .tabItem { Label("Smart Add", systemImage: tabIcon(for: .smartAdd)) }
+                    .tag(ProductStore.Tab.smartAdd)
+                ReviewsView()
+                    .tabItem { Label("Reviews", systemImage: tabIcon(for: .reviews)) }
+                    .tag(ProductStore.Tab.reviews)
+                DataBackupView()
+                    .tabItem { Label("Backup", systemImage: tabIcon(for: .backup)) }
+                    .tag(ProductStore.Tab.backup)
+            }
+            .toolbarBackground(.white, for: .tabBar)
+            .toolbarBackground(.visible, for: .tabBar)
         }
         .background(Color(uiColor: .systemGray6))
     }
@@ -25,12 +42,16 @@ struct MainTabView: View {
                 Text("ProductCompare")
                     .font(.system(size: 30, weight: .heavy))
                     .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .layoutPriority(1)
 
                 Spacer()
 
-                Text("Live")
+                Text("Offline")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.indigo)
+                    .fixedSize(horizontal: true, vertical: false)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(Color.indigo.opacity(0.1), in: Capsule())
@@ -41,42 +62,6 @@ struct MainTabView: View {
             Divider()
         }
         .background(.white)
-    }
-
-    private var tabButtons: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(ProductStore.Tab.allCases, id: \.self) { tab in
-                    Button {
-                        store.selectedTab = tab
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: tabIcon(for: tab))
-                            Text(tab.rawValue)
-                                .lineLimit(1)
-                        }
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(store.selectedTab == tab ? .white : Color.primary)
-                        .padding(.vertical, 12)
-                        .padding(.horizontal, 15)
-                        .background(store.selectedTab == tab ? Color.indigo : Color(uiColor: .systemGray6), in: Capsule())
-                    }
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 10)
-        }
-        .background(.white)
-    }
-
-    @ViewBuilder private var contentView: some View {
-        switch store.selectedTab {
-        case .catalog: CatalogView()
-        case .compare: CompareView()
-        case .smartAdd: SmartAddView()
-        case .reviews: ReviewsView()
-        case .backup: DataBackupView()
-        }
     }
 
     private func tabIcon(for tab: ProductStore.Tab) -> String {
