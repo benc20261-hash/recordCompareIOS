@@ -34,13 +34,15 @@ struct CatalogView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 16) {
+            LazyVStack(spacing: 20) {
                 filterBar
                 ForEach(store.filteredProducts) { product in
                     if tableLayout {
                         ProductTableRow(product: product) { selectedProduct = product }
+                            .padding(.horizontal, 12)
                     } else {
                         ProductCard(product: product, onOpen: { selectedProduct = product })
+                            .padding(.horizontal, 12)
                     }
                 }
                 if store.filteredProducts.isEmpty {
@@ -122,12 +124,16 @@ struct CatalogView: View {
                         Button {
                             filterScope = scope
                         } label: {
-                            Text("\(scope.title) (\(scope.count(tags: store.allTags.count, brands: store.allBrands.count, products: store.products.count))")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(selected ? .white : .primary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .background(selected ? Color.indigo : Color(uiColor: .systemGray6), in: Capsule())
+                            HStack(spacing: 5) {
+                                Image(systemName: scope.symbol)
+                                    .foregroundStyle(selected ? .white : scope.tint)
+                                Text("\(scope.title) (\(scope.count(tags: store.allTags.count, brands: store.allBrands.count, products: store.products.count))")
+                            }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(selected ? .white : .primary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(selected ? Color.indigo : Color(uiColor: .systemGray6), in: Capsule())
                         }
                         .buttonStyle(.plain)
                     }
@@ -160,7 +166,8 @@ struct CatalogView: View {
             }
         } label: {
             HStack(spacing: 5) {
-                if selected { Image(systemName: "checkmark") }
+                Image(systemName: scope.symbol)
+                    .foregroundStyle(selected ? .white : scope.tint)
                 Text(title)
             }
             .font(.system(size: 13, weight: .semibold))
@@ -180,7 +187,32 @@ private enum CatalogFilterScope: String, CaseIterable, Identifiable {
     case product
 
     var id: String { rawValue }
-    var title: String { rawValue == "all" ? "All" : rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .tag: "Tags"
+        case .brand: "Brands"
+        case .product: "Product"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .all: "square.grid.2x2.fill"
+        case .tag: "tag.fill"
+        case .brand: "building.2.fill"
+        case .product: "shippingbox.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .all: .indigo
+        case .tag: .blue
+        case .brand: .orange
+        case .product: .green
+        }
+    }
 
     func count(tags: Int, brands: Int, products: Int) -> Int {
         switch self {
@@ -252,6 +284,8 @@ private struct ProductTableRow: View {
         }
         .padding(14)
         .background(.white, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.gray.opacity(0.2), lineWidth: 1))
+        .shadow(color: .black.opacity(0.045), radius: 5, x: 0, y: 2)
     }
 }
 
@@ -261,60 +295,167 @@ struct ProductCard: View {
     var onOpen: () -> Void
 
     private var productSpecs: [Specification] {
-        store.specifications.filter { $0.productId == product.id || $0.productTitle == product.name }.sorted { $0.order < $1.order }
+        store.specifications
+            .filter { $0.productId == product.id || $0.productTitle == product.name }
+            .sorted { $0.order < $1.order }
+    }
+
+    private var reviewCount: Int {
+        store.reviews.filter {
+            $0.productIds.contains(product.id) ||
+                $0.productTitles.contains {
+                    $0.caseInsensitiveCompare(product.name) == .orderedSame
+                }
+        }.count
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(product.brand.isEmpty ? "Other" : product.brand.uppercased())
-                    .font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
-                    .padding(.horizontal, 12).padding(.vertical, 7).background(Color(uiColor: .darkGray), in: RoundedRectangle(cornerRadius: 10))
+                Text(product.brand.isEmpty ? "GENERIC" : product.brand.uppercased())
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(0.5)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Color(uiColor: .darkGray), in: RoundedRectangle(cornerRadius: 7))
                 Spacer()
                 Button {
                     store.toggleCompare(product.id)
-                    if store.comparedProductIDs.contains(product.id) { store.selectedTab = .compare }
-                } label: { Label(store.comparedProductIDs.contains(product.id) ? "Added" : "Compare", systemImage: store.comparedProductIDs.contains(product.id) ? "checkmark" : "plus").font(.system(size: 13, weight: .semibold)).padding(.horizontal, 12).padding(.vertical, 8) }
-                    .buttonStyle(.bordered).tint(.indigo)
-            }.padding(14)
-            Button(action: onOpen) {
-                Group {
-                    if let picture = product.pictures.first, let url = store.localURL(for: picture) {
-                        Image(uiImage: UIImage(contentsOfFile: url.path) ?? UIImage()).resizable().scaledToFit()
-                            .frame(maxWidth: .infinity).frame(height: 230).background(Color(uiColor: .systemGray6))
-                    } else {
-                        RoundedRectangle(cornerRadius: 12).fill(LinearGradient(colors: [Color.indigo.opacity(0.12), Color.blue.opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .frame(height: 180).overlay(Image(systemName: "shippingbox").font(.system(size: 44)).foregroundStyle(Color.indigo.opacity(0.4)))
+                    if store.comparedProductIDs.contains(product.id) {
+                        store.selectedTab = .compare
+                    }
+                } label: {
+                    Label(
+                        store.comparedProductIDs.contains(product.id) ? "Added" : "Compare",
+                        systemImage: store.comparedProductIDs.contains(product.id) ? "checkmark" : "plus"
+                    )
+                    .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(.bordered)
+                .tint(.indigo)
+                .accessibilityLabel(store.comparedProductIDs.contains(product.id) ? "Remove from comparison" : "Compare \(product.name)")
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+
+            VStack(alignment: .leading, spacing: 11) {
+                if !product.tags.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(product.tags.prefix(5), id: \.self) { tag in
+                                Text(tag)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(Color(uiColor: .secondaryLabel))
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 5)
+                                    .background(Color(uiColor: .systemGray6), in: Capsule())
+                            }
+                        }
                     }
                 }
-            }.buttonStyle(.plain).padding(.horizontal, 12)
-            VStack(alignment: .leading, spacing: 12) {
-                HStack { ForEach(product.tags.prefix(4), id: \.self) { tag in Text(tag).font(.system(size: 13)).padding(.horizontal, 10).padding(.vertical, 6).background(Color(uiColor: .systemGray6), in: Capsule()) } }
-                Button(action: onOpen) { Text(product.name).font(.system(size: 23, weight: .bold)).foregroundStyle(.primary).frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain)
-                if !product.overview.isEmpty {
-                    RichHTMLText(html: product.overview, fontSize: 15, textColor: .secondaryLabel)
+
+                Button(action: onOpen) {
+                    Text(product.name)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .multilineTextAlignment(.leading)
                 }
+                .buttonStyle(.plain)
+
+                Button(action: onOpen) {
+                    productImage
+                }
+                .buttonStyle(.plain)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
                 if !productSpecs.isEmpty {
-                    VStack(spacing: 0) {
-                        ForEach(productSpecs.prefix(5)) { spec in
-                            HStack(alignment: .top) {
-                                Text(spec.specName).foregroundStyle(.secondary)
-                                Spacer(minLength: 12)
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(productSpecs.prefix(3)) { spec in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                    Text(spec.specName)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(Color(uiColor: .secondaryLabel))
+                                    if let unit = spec.unit, !unit.isEmpty {
+                                        Text(unit)
+                                            .font(.system(size: 10, weight: .medium))
+                                            .foregroundStyle(Color(uiColor: .tertiaryLabel))
+                                    }
+                                }
                                 RichHTMLText(
-                                    html: [spec.details, spec.unit ?? ""].filter { !$0.isEmpty }.joined(separator: " "),
-                                    fontSize: 14,
+                                    html: spec.details,
+                                    fontSize: 13,
                                     textColor: .label,
-                                    alignment: .right
-                                ).lineLimit(2)
-                            }.font(.system(size: 14)).padding(.vertical, 8)
-                            if spec.id != productSpecs.prefix(5).last?.id { Divider() }
+                                    alignment: .left
+                                )
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(9)
+                            .background(Color(uiColor: .systemGray6).opacity(0.75), in: RoundedRectangle(cornerRadius: 9))
                         }
-                    }.padding(.horizontal, 12).background(Color(uiColor: .systemGray6).opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }.padding(16)
+
+                HStack(spacing: 4) {
+                    Text("\(reviewCount) \(reviewCount == 1 ? "review" : "reviews")")
+                    Text("·")
+                    Text("\(productSpecs.count) specs")
+                    Spacer(minLength: 4)
+                    Button(action: onOpen) {
+                        HStack(spacing: 4) {
+                            Text("Details")
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("Details for \(product.name)")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(Color(uiColor: .secondaryLabel))
+                .padding(.top, 2)
+            }
+            .padding(14)
         }
         .background(.white, in: RoundedRectangle(cornerRadius: 20))
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.gray.opacity(0.15), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.gray.opacity(0.24), lineWidth: 1))
+        .shadow(color: .black.opacity(0.055), radius: 7, x: 0, y: 3)
+    }
+
+    @ViewBuilder
+    private var productImage: some View {
+        if let picture = product.pictures.first,
+           let url = store.localURL(for: picture),
+           let image = UIImage(contentsOfFile: url.path) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity)
+                .frame(height: 160)
+                .background(Color(uiColor: .systemGray6))
+                .accessibilityLabel("\(product.name) product photo")
+        } else {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(LinearGradient(
+                    colors: [Color.indigo.opacity(0.12), Color.blue.opacity(0.05)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+                .frame(height: 145)
+                .overlay {
+                    Image(systemName: "shippingbox")
+                        .font(.system(size: 44))
+                        .foregroundStyle(Color.indigo.opacity(0.4))
+                }
+                .accessibilityLabel("\(product.name) placeholder image")
+        }
     }
 }
 
@@ -326,7 +467,8 @@ private struct ProductDetailSheet: View {
     @State private var editingSpecification: SpecificationEditorRequest?
     @State private var specificationToDelete: Specification?
     @State private var confirmingProductDelete = false
-    @State private var selectedImage: UIImage?
+    @State private var photoViewer: ProductPhotoViewerRequest?
+    @State private var selectedReview: ProductReviewRequest?
 
     private var currentProduct: Product {
         store.products.first(where: { $0.id == product.id }) ?? product
@@ -410,28 +552,11 @@ private struct ProductDetailSheet: View {
             } message: {
                 Text("This also removes its specifications and clears its product links from reviews.")
             }
-            .fullScreenCover(isPresented: Binding(
-                get: { selectedImage != nil },
-                set: { if !$0 { selectedImage = nil } }
-            )) {
-                if let selectedImage {
-                    ZStack(alignment: .topTrailing) {
-                        Color.black.ignoresSafeArea()
-                        Image(uiImage: selectedImage)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        Button {
-                            self.selectedImage = nil
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 30))
-                                .foregroundStyle(.white)
-                                .padding(20)
-                        }
-                        .accessibilityLabel("Close image")
-                    }
-                }
+            .fullScreenCover(item: $photoViewer) { request in
+                ProductPhotoViewer(images: request.images, initialIndex: request.initialIndex)
+            }
+            .sheet(item: $selectedReview) { request in
+                ProductReviewActionsSheet(review: request.review, startEditing: request.startEditing)
             }
         }
         .presentationDetents([.large])
@@ -474,7 +599,7 @@ private struct ProductDetailSheet: View {
                let url = store.localURL(for: picture),
                let image = UIImage(contentsOfFile: url.path) {
                 Button {
-                    selectedImage = image
+                    presentImage(picture, from: currentProduct.pictures)
                 } label: {
                     Image(uiImage: image)
                         .resizable()
@@ -588,16 +713,6 @@ private struct ProductDetailSheet: View {
                     .font(.caption.weight(.bold))
                     .frame(width: 25, height: 25)
                     .background(Color(uiColor: .systemGray5), in: RoundedRectangle(cornerRadius: 7))
-                Text(specification.specName.isEmpty ? "Untitled specification" : specification.specName)
-                    .font(.subheadline.weight(.bold))
-                    .lineLimit(2)
-                if let unit = specification.unit, !unit.isEmpty {
-                    Text(unit)
-                        .font(.caption2.monospaced().weight(.semibold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Color(uiColor: .systemGray5), in: RoundedRectangle(cornerRadius: 5))
-                }
                 Spacer(minLength: 2)
                 Button {
                     editingSpecification = SpecificationEditorRequest(specification: specification)
@@ -615,13 +730,32 @@ private struct ProductDetailSheet: View {
                 .accessibilityLabel("Delete \(specification.specName)")
             }
 
-            if specification.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("No details added")
-                    .font(.subheadline)
-                    .italic()
+            HStack(alignment: .top, spacing: 10) {
+                Text(specification.specName.isEmpty ? "Value" : specification.specName)
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
-            } else {
-                RichHTMLText(html: specification.details, fontSize: 14, textColor: .label)
+                    .frame(width: 105, alignment: .leading)
+                VStack(alignment: .leading, spacing: 6) {
+                    if specification.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("No details added")
+                            .font(.subheadline)
+                            .italic()
+                            .foregroundStyle(.secondary)
+                    } else {
+                        RichHTMLText(html: specification.details, fontSize: 14, textColor: .label, alignment: .left)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let unit = specification.unit, !unit.isEmpty {
+                        Text(unit)
+                            .font(.caption2.monospaced().weight(.semibold))
+                            .foregroundStyle(Color(uiColor: .secondaryLabel))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(Color(uiColor: .systemGray5), in: RoundedRectangle(cornerRadius: 5))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             if !specification.pictures.isEmpty {
@@ -649,28 +783,81 @@ private struct ProductDetailSheet: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(linkedReviews) { review in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(review.title?.isEmpty == false ? review.title! : "Review #\(review.reviewNumber)")
-                                .font(.subheadline.weight(.semibold))
-                                .lineLimit(2)
-                            Spacer(minLength: 6)
-                            Text(String(repeating: "★", count: max(0, min(5, review.rating ?? 0))))
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
-                        if let author = review.authorName, !author.isEmpty {
-                            Text(author)
-                                .font(.caption)
+                    HStack(alignment: .top, spacing: 10) {
+                        if let firstPicture = review.pictures.first,
+                           let url = store.localURL(for: firstPicture),
+                           let image = UIImage(contentsOfFile: url.path) {
+                            Button {
+                                presentImage(firstPicture, from: review.pictures)
+                            } label: {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 64, height: 64)
+                                    .clipped()
+                                    .clipShape(RoundedRectangle(cornerRadius: 9))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("View review photo \(firstPicture.name)")
+                        } else {
+                            Image(systemName: "text.bubble")
+                                .font(.title3)
                                 .foregroundStyle(.secondary)
+                                .frame(width: 64, height: 64)
+                                .background(Color(uiColor: .systemGray5), in: RoundedRectangle(cornerRadius: 9))
                         }
-                        if !review.body.isEmpty {
-                            RichHTMLText(html: review.body, fontSize: 13, textColor: .label)
-                                .lineLimit(5)
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text(review.title?.isEmpty == false ? review.title! : "Review #\(review.reviewNumber)")
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                Spacer(minLength: 2)
+                                Text(String(repeating: "★", count: max(0, min(5, review.rating ?? 0))))
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                                    .fixedSize()
+                            }
+                            Text(review.authorName?.isEmpty == false ? review.authorName! : "Verified Reviewer")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            if !review.body.isEmpty {
+                                Text(reviewExcerpt(review.body))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            if review.pictures.count > 1 {
+                                attachmentStrip(
+                                    Array(review.pictures.dropFirst()),
+                                    height: 42,
+                                    viewerAttachments: review.pictures
+                                )
+                            }
+                            HStack(spacing: 7) {
+                            Button {
+                                selectedReview = ProductReviewRequest(review: review, startEditing: false)
+                            } label: {
+                                Label("View", systemImage: "eye")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+
+                            Button {
+                                selectedReview = ProductReviewRequest(review: review, startEditing: true)
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .tint(.indigo)
+                            }
                         }
-                        if !review.pictures.isEmpty {
-                            attachmentStrip(review.pictures, height: 104)
-                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -692,14 +879,32 @@ private struct ProductDetailSheet: View {
         .detailCard()
     }
 
-    private func attachmentStrip(_ attachments: [MediaAttachment], height: CGFloat) -> some View {
+    private func reviewExcerpt(_ html: String) -> String {
+        let withBreaks = html
+            .replacingOccurrences(of: #"(?i)<br\s*/?>"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)</(p|div|li|h[1-6])>"#, with: " ", options: .regularExpression)
+        let text = withBreaks.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)
+        return text
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+
+    private func attachmentStrip(
+        _ attachments: [MediaAttachment],
+        height: CGFloat,
+        viewerAttachments: [MediaAttachment]? = nil
+    ) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(attachments) { attachment in
                     if let url = store.localURL(for: attachment),
                        let image = UIImage(contentsOfFile: url.path) {
                         Button {
-                            selectedImage = image
+                            presentImage(attachment, from: viewerAttachments ?? attachments)
                         } label: {
                             Image(uiImage: image)
                                 .resizable()
@@ -714,6 +919,16 @@ private struct ProductDetailSheet: View {
                 }
             }
         }
+    }
+
+    private func presentImage(_ attachment: MediaAttachment, from attachments: [MediaAttachment]) {
+        let images = attachments.compactMap { item -> ProductPhotoViewerItem? in
+            guard let url = store.localURL(for: item),
+                  let image = UIImage(contentsOfFile: url.path) else { return nil }
+            return ProductPhotoViewerItem(id: item.id, name: item.name, image: image)
+        }
+        guard let index = images.firstIndex(where: { $0.id == attachment.id }) else { return }
+        photoViewer = ProductPhotoViewerRequest(images: images, initialIndex: index)
     }
 
     private func sectionHeading(_ title: String, icon: String) -> some View {
@@ -736,6 +951,147 @@ private struct ProductDetailSheet: View {
 private struct SpecificationEditorRequest: Identifiable {
     let id = UUID()
     let specification: Specification
+}
+
+private struct ProductReviewRequest: Identifiable {
+    let id: String
+    let review: Review
+    let startEditing: Bool
+
+    init(review: Review, startEditing: Bool) {
+        id = review.id
+        self.review = review
+        self.startEditing = startEditing
+    }
+}
+
+private struct ProductPhotoViewerItem: Identifiable {
+    let id: String
+    let name: String
+    let image: UIImage
+}
+
+private struct ProductPhotoViewerRequest: Identifiable {
+    let id = UUID()
+    let images: [ProductPhotoViewerItem]
+    let initialIndex: Int
+}
+
+private struct ProductPhotoViewer: View {
+    @Environment(\.dismiss) private var dismiss
+    let images: [ProductPhotoViewerItem]
+    @State private var selectedIndex: Int
+
+    init(images: [ProductPhotoViewerItem], initialIndex: Int) {
+        self.images = images
+        _selectedIndex = State(initialValue: initialIndex)
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.black.ignoresSafeArea()
+            TabView(selection: $selectedIndex) {
+                ForEach(Array(images.enumerated()), id: \.element.id) { index, item in
+                    ZoomableProductPhoto(image: item.image)
+                        .tag(index)
+                        .ignoresSafeArea()
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: images.count > 1 ? .always : .never))
+            .background(.black)
+
+            HStack {
+                Text(images.indices.contains(selectedIndex) ? images[selectedIndex].name : "")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer()
+                if images.count > 1 {
+                    Text("\(selectedIndex + 1) / \(images.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 30))
+                        .foregroundStyle(.white)
+                        .padding(.leading, 10)
+                }
+                .accessibilityLabel("Close image viewer")
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+        }
+        .statusBarHidden()
+    }
+}
+
+private struct ZoomableProductPhoto: UIViewRepresentable {
+    let image: UIImage
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let scrollView = UIScrollView()
+        scrollView.delegate = context.coordinator
+        scrollView.minimumZoomScale = 1
+        scrollView.maximumZoomScale = 5
+        scrollView.bouncesZoom = true
+        scrollView.backgroundColor = .black
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+
+        let imageView = UIImageView(image: image)
+        imageView.contentMode = .scaleAspectFit
+        imageView.frame = scrollView.bounds
+        imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        imageView.isUserInteractionEnabled = true
+        scrollView.addSubview(imageView)
+        context.coordinator.imageView = imageView
+
+        let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        imageView.addGestureRecognizer(doubleTap)
+        return scrollView
+    }
+
+    func updateUIView(_ scrollView: UIScrollView, context: Context) {
+        guard let imageView = context.coordinator.imageView else { return }
+        imageView.image = image
+        if scrollView.zoomScale == scrollView.minimumZoomScale {
+            imageView.frame = scrollView.bounds
+            scrollView.contentSize = scrollView.bounds.size
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        weak var imageView: UIImageView?
+
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            guard let imageView else { return }
+            let horizontalInset = max(0, (scrollView.bounds.width - imageView.frame.width) / 2)
+            let verticalInset = max(0, (scrollView.bounds.height - imageView.frame.height) / 2)
+            scrollView.contentInset = UIEdgeInsets(
+                top: verticalInset,
+                left: horizontalInset,
+                bottom: verticalInset,
+                right: horizontalInset
+            )
+        }
+
+        @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+            guard let scrollView = gesture.view?.superview as? UIScrollView else { return }
+            if scrollView.zoomScale > scrollView.minimumZoomScale {
+                scrollView.setZoomScale(scrollView.minimumZoomScale, animated: true)
+            } else {
+                scrollView.setZoomScale(2.5, animated: true)
+            }
+        }
+    }
 }
 
 private struct SpecificationEditorSheet: View {
@@ -966,35 +1322,50 @@ private struct SpecificationFormattingToolbar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 7) {
-                tool("B", command: "bold", bold: true)
-                tool("I", command: "italic", italic: true)
-                tool("U", command: "underline", underline: true)
-                tool("• List", command: "unordered")
-                tool("1. List", command: "ordered")
-                tool("Link", command: "link")
-                tool("Clear", command: "clear")
+                tool("B", accessibility: "Bold", command: "bold", bold: true)
+                tool("/", accessibility: "Italic", command: "italic", italic: true)
+                tool("U", accessibility: "Underline", command: "underline", underline: true)
+                tool("•", accessibility: "Bulleted list", command: "unordered")
+                tool("1.", accessibility: "Numbered list", command: "ordered")
+                tool("link", accessibility: "Insert link", command: "link", systemImage: "link")
+                tool("clear", accessibility: "Clear formatting", command: "clear", systemImage: "textformat")
             }
         }
     }
 
     private func tool(
         _ title: String,
+        accessibility: String,
         command: String,
         bold: Bool = false,
         italic: Bool = false,
-        underline: Bool = false
+        underline: Bool = false,
+        systemImage: String? = nil
     ) -> some View {
         Button {
             onCommand(command)
         } label: {
-            Text(title)
-                .font(.subheadline.weight(bold ? .heavy : .semibold))
-                .italic(italic)
-                .underline(underline)
+            Group {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 13, weight: .semibold))
+                } else {
+                    Text(title)
+                        .font(.system(size: 14, weight: bold ? .heavy : .semibold))
+                        .italic(italic)
+                        .underline(underline)
+                }
+            }
+            .foregroundStyle(Color(uiColor: .label))
+            .frame(width: 32, height: 30)
+            .background(Color(uiColor: .systemGray6), in: RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color(uiColor: .systemGray4), lineWidth: 0.7)
+            }
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .accessibilityLabel(title == "B" ? "Bold" : title == "I" ? "Italic" : title == "U" ? "Underline" : title)
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibility)
     }
 }
 
@@ -1094,222 +1465,573 @@ private enum ProductDetailPhotoImportError: LocalizedError {
 }
 
 private struct ProductWorkspaceSheet: View {
-                    @EnvironmentObject private var store: ProductStore
-                    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: ProductStore
+    @Environment(\.dismiss) private var dismiss
 
-                    let product: Product?
-                    @State private var name: String
-                    @State private var brand: String
-                    @State private var tagsText: String
-                    @State private var overview: String
-                    @State private var pictures: [MediaAttachment]
-                    @State private var specifications: [Specification]
-                    @State private var photoItems: [PhotosPickerItem] = []
-                    @State private var errorText: String?
+    let product: Product?
+    private let productID: String
+    @State private var name: String
+    @State private var brand: String
+    @State private var brandSearchText = ""
+    @State private var selectedTags: Set<String>
+    @State private var tagSearchText = ""
+    @State private var newTagText = ""
+    @State private var overview: String
+    @State private var overviewCommand: String?
+    @State private var editorCommands: [String: String] = [:]
+    @State private var showingLinkPrompt = false
+    @State private var linkURL = ""
+    @State private var linkTargetSpecID: String?
+    @State private var pictures: [MediaAttachment]
+    @State private var specifications: [Specification]
+    @State private var expandedSpecificationIDs: Set<String> = []
+    @State private var photoViewer: ProductPhotoViewerRequest?
+    @State private var errorText: String?
 
-                    private let quickUnits = ["g", "kg", "inch", "cm", "mm", "year", "month", "mAh", "Hz", "$", "GB"]
+    private let quickUnits = ["g", "kg", "inch", "cm", "mm", "year", "month", "mAh", "Hz", "$", "GB"]
 
-                    init(product: Product? = nil) {
-                        self.product = product
-                        _name = State(initialValue: product?.name ?? "")
-                        _brand = State(initialValue: product?.brand ?? "")
-                        _tagsText = State(initialValue: product?.tags.joined(separator: ", ") ?? "")
-                        _overview = State(initialValue: product?.overview ?? "")
-                        _pictures = State(initialValue: product?.pictures ?? [])
-                        _specifications = State(initialValue: [])
+    init(product: Product? = nil) {
+        self.product = product
+        let id = product?.id ?? "rec_" + String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(17))
+        productID = id
+        _name = State(initialValue: product?.name ?? "")
+        _brand = State(initialValue: product?.brand ?? "")
+        _selectedTags = State(initialValue: Set(product?.tags ?? []))
+        _overview = State(initialValue: product?.overview ?? "")
+        _pictures = State(initialValue: product?.pictures ?? [])
+        if product == nil {
+            _specifications = State(initialValue: [
+                Specification(
+                    id: "spec_" + String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(17)),
+                    specName: "New specification",
+                    details: "",
+                    order: 1,
+                    productId: id,
+                    productTitle: "",
+                    pictures: []
+                )
+            ])
+        } else {
+            _specifications = State(initialValue: [])
+        }
+    }
+
+    private var filteredBrands: [String] {
+        let query = brandSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let values = store.allBrands.filter {
+            query.isEmpty || $0.localizedCaseInsensitiveContains(query)
+        }
+        return Array(values.prefix(12))
+    }
+
+    private var filteredTags: [String] {
+        let query = tagSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return store.allTags.filter { tag in
+            !selectedTags.contains(where: { $0.caseInsensitiveCompare(tag) == .orderedSame }) &&
+                (query.isEmpty || tag.localizedCaseInsensitiveContains(query))
+        }.prefix(16).map { $0 }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    identitySection
+                    overviewSection
+                    productPhotosSection
+                    specificationsSection
+                    if let errorText {
+                        Text(errorText)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .detailCard()
                     }
-
-                    var body: some View {
-                        NavigationStack {
-                            Form {
-                                Section("Product") {
-                                    TextField("Product name", text: $name)
-                                    TextField("Brand", text: $brand)
-                                    TextField("Tags, separated by commas", text: $tagsText)
-                                    if !store.allTags.isEmpty {
-                                        ScrollView(.horizontal, showsIndicators: false) {
-                                            HStack {
-                                                ForEach(store.allTags, id: \.self) { tag in
-                                                    Button(tag) { appendTag(tag) }
-                                                        .buttonStyle(.bordered)
-                                                }
-                                            }
-
-                                        }
-                                    }
-                                    TextField("Overview", text: $overview, axis: .vertical)
-                                        .lineLimit(3...8)
-                                }
-
-                                Section("Product photos") {
-                                    PhotosPicker(selection: $photoItems, maxSelectionCount: 12, matching: .images) {
-                                        Label("Add photos", systemImage: "photo.badge.plus")
-                                    }
-                                    .onChange(of: photoItems) { _, items in
-                                        guard !items.isEmpty else { return }
-                                        Task { await addPhotos(items) }
-                                    }
-                                    if !pictures.isEmpty {
-                                        ScrollView(.horizontal, showsIndicators: false) {
-                                            HStack(spacing: 12) {
-                                                ForEach(pictures) { picture in
-                                                    VStack(spacing: 4) {
-                                                        if let url = store.localURL(for: picture), let image = UIImage(contentsOfFile: url.path) {
-                                                            Image(uiImage: image)
-                                                                .resizable()
-                                                                .scaledToFill()
-                                                                .frame(width: 92, height: 92)
-                                                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                                        } else {
-                                                            Image(systemName: "photo")
-                                                                .frame(width: 92, height: 92)
-                                                                .background(Color(uiColor: .systemGray5), in: RoundedRectangle(cornerRadius: 10))
-                                                        }
-                                                        Button("Remove", role: .destructive) {
-                                                            pictures.removeAll { $0.id == picture.id }
-                                                        }
-                                                        .font(.caption)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Section {
-                                    ForEach($specifications) { $specification in
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            HStack {
-                                                TextField("Specification name", text: $specification.specName)
-                                                TextField("Unit", text: Binding(
-                                                    get: { specification.unit ?? "" },
-                                                    set: { specification.unit = $0.isEmpty ? nil : $0 }
-                                                ))
-                                                .frame(width: 80)
-                                            }
-                                            TextField("Value / details", text: $specification.details, axis: .vertical)
-                                                .lineLimit(1...4)
-                                            ScrollView(.horizontal, showsIndicators: false) {
-                                                HStack {
-                                                    ForEach(quickUnits, id: \.self) { unit in
-                                                        Button(unit) { specification.unit = unit }
-                                                            .buttonStyle(.bordered)
-                                                            .tint(specification.unit == unit ? .indigo : .gray)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        .padding(.vertical, 4)
-                                    }
-                                    .onDelete { specifications.remove(atOffsets: $0); renumberSpecifications() }
-                                    .onMove { specifications.move(fromOffsets: $0, toOffset: $1); renumberSpecifications() }
-
-                                    Button {
-                                        specifications.append(Specification(
-                                            id: "spec_" + String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(17)),
-                                            specName: "",
-                                            details: "",
-                                            order: specifications.count + 1,
-                                            productId: product?.id ?? "",
-                                            productTitle: name,
-                                            pictures: []
-                                        ))
-                                    } label: {
-                                        Label("Add specification", systemImage: "plus.circle")
-                                    }
-                                } header: {
-                                    Text("Specifications")
-                                } footer: {
-                                    Text("Drag rows to reorder specifications. Swipe left to remove one.")
-                                }
-
-                                if let errorText {
-                                    Section {
-                                        Text(errorText).foregroundStyle(.red)
-                                    }
-                                }
-                            }
-                            .navigationTitle(product == nil ? "Add Product" : "Edit Product")
-                            .navigationBarTitleDisplayMode(.inline)
-                            .toolbar {
-                                ToolbarItem(placement: .cancellationAction) {
-                                    Button("Cancel") { dismiss() }
-                                }
-                                ToolbarItem(placement: .confirmationAction) {
-                                    Button("Save", action: save)
-                                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                                }
-                                ToolbarItem(placement: .bottomBar) {
-                                    EditButton()
-                                }
-                            }
-                            .onAppear {
-                                if let product {
-                                    specifications = store.specifications
-                                        .filter { $0.productId == product.id || $0.productTitle == product.name }
-                                        .sorted { $0.order < $1.order }
-                                }
-                            }
-                        }
+                }
+                .padding(16)
+            }
+            .background(Color(uiColor: .systemGray6))
+            .navigationTitle(product == nil ? "Add Product" : "Edit Product")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: save)
+                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .onAppear {
+                guard let product else { return }
+                specifications = store.specifications
+                    .filter { $0.productId == product.id || $0.productTitle == product.name }
+                    .sorted { $0.order < $1.order }
+                renumberSpecifications()
+            }
+            .fullScreenCover(item: $photoViewer) { request in
+                ProductPhotoViewer(images: request.images, initialIndex: request.initialIndex)
+            }
+            .alert("Insert link", isPresented: $showingLinkPrompt) {
+                TextField("https://example.com", text: $linkURL)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("Insert") {
+                    guard let url = URL(string: linkURL),
+                          ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") else {
+                        errorText = "Enter a valid http, https, or mailto link."
+                        return
                     }
-
-                    private func appendTag(_ tag: String) {
-                        var tags = tagsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                        guard !tags.contains(where: { $0.caseInsensitiveCompare(tag) == .orderedSame }) else { return }
-                        tags.append(tag)
-                        tagsText = tags.joined(separator: ", ")
+                    let nonce = UUID().uuidString
+                    if let linkTargetSpecID {
+                        editorCommands[linkTargetSpecID] = "link|\(url.absoluteString)|\(nonce)"
+                    } else {
+                        overviewCommand = "link|\(url.absoluteString)|\(nonce)"
                     }
+                    linkURL = ""
+                    self.linkTargetSpecID = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    linkTargetSpecID = nil
+                }
+            }
+        }
+    }
 
-                    @MainActor
-                    private func addPhotos(_ items: [PhotosPickerItem]) async {
-                        defer { photoItems = [] }
-                        for item in items {
-                            do {
-                                guard let data = try await item.loadTransferable(type: Data.self) else {
-                                    throw PhotoImportError.unreadableImage
+    private var identitySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("Product Identity", subtitle: "Name, brand, and tags")
+            TextField("Product name", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.words)
+                .accessibilityLabel("Product name")
+
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("Search previous brands or enter a brand", text: $brandSearchText)
+                    .textFieldStyle(.roundedBorder)
+                    .textInputAutocapitalization(.words)
+                    .accessibilityLabel("Search brands")
+                TextField("Brand", text: $brand)
+                    .textFieldStyle(.roundedBorder)
+                    .textInputAutocapitalization(.words)
+                if !filteredBrands.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 7) {
+                            ForEach(filteredBrands, id: \.self) { previousBrand in
+                                Button(previousBrand) {
+                                    brand = previousBrand
+                                    brandSearchText = previousBrand
                                 }
-                                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                                let attachment = try store.saveLocalPhoto(data, originalName: "photo_\(UUID().uuidString).\(ext)")
-                                pictures.append(attachment)
-                            } catch {
-                                errorText = "Could not import a selected photo: \(error.localizedDescription)"
+                                .font(.caption.weight(.semibold))
+                                .buttonStyle(.bordered)
+                                .tint(brand.caseInsensitiveCompare(previousBrand) == .orderedSame ? .indigo : .gray)
                             }
                         }
                     }
+                }
+            }
 
-                    private func renumberSpecifications() {
-                        for index in specifications.indices {
-                            specifications[index].order = index + 1
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    TextField("Search or add a tag", text: $tagSearchText)
+                        .textFieldStyle(.roundedBorder)
+                        .textInputAutocapitalization(.never)
+                        .onSubmit(addSearchedTag)
+                    Button("Add") { addSearchedTag() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(tagSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                if !selectedTags.isEmpty {
+                    FlexibleTagList(tags: selectedTags.sorted())
+                    Button("Clear tags", role: .destructive) {
+                        selectedTags.removeAll()
+                    }
+                    .font(.caption)
+                }
+                if !filteredTags.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 7) {
+                            ForEach(filteredTags, id: \.self) { tag in
+                                Button {
+                                    addTag(tag)
+                                    tagSearchText = ""
+                                } label: {
+                                    Label(tag, systemImage: "plus")
+                                        .font(.caption.weight(.medium))
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.indigo)
+                            }
                         }
                     }
+                }
+            }
+        }
+        .detailCard()
+    }
 
-                    private func save() {
-                        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let tags = tagsText.split(separator: ",")
-                            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                            .filter { !$0.isEmpty }
-                        let savedProduct = Product(
-                            id: product?.id ?? "rec_" + String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(17)),
-                            name: trimmedName,
-                            brand: brand.trimmingCharacters(in: .whitespacesAndNewlines),
-                            tags: tags.reduce(into: [String]()) { unique, tag in
-                                if !unique.contains(where: { $0.caseInsensitiveCompare(tag) == .orderedSame }) {
-                                    unique.append(tag)
-                                }
-                            },
-                            overview: overview,
-                            pictures: pictures,
-                            createdTime: product?.createdTime ?? ISO8601DateFormatter().string(from: Date())
-                        )
-                        store.saveProduct(savedProduct, specifications: specifications)
-                        store.statusMessage = product == nil ? "Product added." : "Product updated."
-                        dismiss()
-                    }
+    private var overviewSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            sectionTitle("Product Overview", subtitle: "Formatted HTML content")
+            SpecificationFormattingToolbar { command in
+                if command == "link" {
+                    linkTargetSpecID = nil
+                    showingLinkPrompt = true
+                } else {
+                    overviewCommand = "\(command)|\(UUID().uuidString)"
+                }
+            }
+            SpecificationRichTextEditor(html: $overview, command: overviewCommand)
+                .frame(height: 145)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .detailCard()
+    }
 
-                    private enum PhotoImportError: LocalizedError {
-                        case unreadableImage
-                        var errorDescription: String? { "The selected photo could not be read." }
+    private var productPhotosSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                sectionTitle("Product Photos", subtitle: "Choose photos stored on this device")
+                Spacer()
+                LocalPhotoPickerButton(title: "Add", systemImage: "photo.badge.plus") { items in
+                    Task { await importPhotos(items, for: nil) }
+                }
+            }
+            if pictures.isEmpty {
+                Text("No product photos added")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                attachmentEditorStrip(pictures, onOpen: presentImage) { picture in
+                    pictures.removeAll { $0.id == picture.id }
+                }
+            }
+        }
+        .detailCard()
+    }
+
+    private var specificationsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                sectionTitle("Specifications", subtitle: "\(specifications.count) ordered specifications")
+                Spacer()
+                Menu {
+                    Button("Name A–Z") { sortSpecifications(ascending: true) }
+                    Button("Name Z–A") { sortSpecifications(ascending: false) }
+                } label: {
+                    Label("Sort", systemImage: "arrow.up.arrow.down")
+                        .font(.caption.weight(.semibold))
+                }
+            }
+
+            ForEach(Array($specifications.enumerated()), id: \.element.id) { index, $specification in
+                specificationEditorCard($specification, index: index)
+            }
+
+            Button(action: addSpecification) {
+                Label("Add specification", systemImage: "plus")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+            }
+            .buttonStyle(.bordered)
+        }
+        .detailCard()
+    }
+
+    private func specificationEditorCard(_ specification: Binding<Specification>, index: Int) -> some View {
+        let specID = specification.wrappedValue.id
+        return VStack(alignment: .leading, spacing: 11) {
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    toggleSpecification(specID)
+                } label: {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: expandedSpecificationIDs.contains(specID) ? "chevron.down" : "chevron.right")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20, height: 22)
+                            .padding(.top, 1)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(specification.wrappedValue.specName.isEmpty ? "New specification" : specification.wrappedValue.specName)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text("SPEC \(index + 1) · \(specification.wrappedValue.unit ?? "No unit")")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(expandedSpecificationIDs.contains(specID) ? "Collapse" : "Expand") specification \(specification.wrappedValue.specName)")
+
+                HStack(spacing: 7) {
+                    Spacer(minLength: 0)
+                    Button {
+                        moveSpecification(at: index, offset: -1)
+                    } label: {
+                        Label("Up", systemImage: "arrow.up")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(index == 0)
+                    .accessibilityLabel("Move specification up")
+                    Button {
+                        moveSpecification(at: index, offset: 1)
+                    } label: {
+                        Label("Down", systemImage: "arrow.down")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(index == specifications.count - 1)
+                    .accessibilityLabel("Move specification down")
+                    Button(role: .destructive) {
+                        specifications.removeAll { $0.id == specID }
+                        renumberSpecifications()
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("Delete specification")
+                }
+            }
+
+            if expandedSpecificationIDs.contains(specID) {
+                TextField("Specification name", text: specification.specName)
+                    .textFieldStyle(.roundedBorder)
+
+                HStack(spacing: 8) {
+                    TextField("Unit (optional)", text: Binding(
+                        get: { specification.wrappedValue.unit ?? "" },
+                        set: { specification.wrappedValue.unit = $0.isEmpty ? nil : $0 }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    LocalPhotoPickerButton(title: "", systemImage: "photo.badge.plus") { items in
+                        Task { await importPhotos(items, for: specID) }
+                    }
+                    .frame(width: 42)
+                    .accessibilityLabel("Add pictures to specification")
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(quickUnits, id: \.self) { unit in
+                            Button(unit) { specification.wrappedValue.unit = unit }
+                                .font(.caption.weight(.semibold))
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .tint(specification.wrappedValue.unit == unit ? .indigo : .gray)
+                        }
+                    }
+                }
+
+                Picker("Detection mode", selection: specification.isNumeric) {
+                    Text("Auto").tag(Optional<Bool>.none)
+                    Text("Number").tag(Optional(true))
+                    Text("Text").tag(Optional(false))
+                }
+                .pickerStyle(.segmented)
+
+                HStack {
+                    Text("Specification details")
+                        .font(.caption.weight(.semibold))
+                    Spacer()
+                    Text("WYSIWYG HTML")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                SpecificationFormattingToolbar { command in
+                    if command == "link" {
+                        linkTargetSpecID = specID
+                        showingLinkPrompt = true
+                    } else {
+                        editorCommands[specID] = "\(command)|\(UUID().uuidString)"
+                    }
+                }
+                SpecificationRichTextEditor(
+                    html: specification.details,
+                    command: editorCommands[specID]
+                )
+                .frame(height: 125)
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+
+                if !specification.wrappedValue.pictures.isEmpty {
+                    attachmentEditorStrip(
+                        specification.wrappedValue.pictures,
+                        onOpen: presentImage
+                    ) { picture in
+                        specification.wrappedValue.pictures.removeAll { $0.id == picture.id }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: .systemGray6).opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func sectionTitle(_ title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.headline)
+            Text(subtitle).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func attachmentEditorStrip(
+        _ attachments: [MediaAttachment],
+        onOpen: @escaping (MediaAttachment, [MediaAttachment]) -> Void,
+        remove: @escaping (MediaAttachment) -> Void
+    ) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 9) {
+                ForEach(attachments) { picture in
+                    VStack(spacing: 4) {
+                        if let url = store.localURL(for: picture),
+                           let image = UIImage(contentsOfFile: url.path) {
+                            Button {
+                                onOpen(picture, attachments)
+                            } label: {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 82, height: 72)
+                                    .clipped()
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("View photo \(picture.name)")
+                        } else {
+                            Image(systemName: "photo")
+                                .frame(width: 82, height: 72)
+                                .background(Color(uiColor: .systemGray5), in: RoundedRectangle(cornerRadius: 8))
+                        }
+                        Button("Remove", role: .destructive) { remove(picture) }
+                            .font(.caption2)
+                    }
+                }
+            }
+        }
+    }
+
+    private func toggleSpecification(_ id: String) {
+        if expandedSpecificationIDs.contains(id) {
+            expandedSpecificationIDs.remove(id)
+        } else {
+            expandedSpecificationIDs.insert(id)
+        }
+    }
+
+    private func presentImage(_ attachment: MediaAttachment, _ attachments: [MediaAttachment]) {
+        let images = attachments.compactMap { item -> ProductPhotoViewerItem? in
+            guard let url = store.localURL(for: item),
+                  let image = UIImage(contentsOfFile: url.path) else { return nil }
+            return ProductPhotoViewerItem(id: item.id, name: item.name, image: image)
+        }
+        guard let index = images.firstIndex(where: { $0.id == attachment.id }) else { return }
+        photoViewer = ProductPhotoViewerRequest(images: images, initialIndex: index)
+    }
+
+    private func addSearchedTag() {
+        let value = tagSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        addTag(value)
+        tagSearchText = ""
+    }
+
+    private func addTag(_ tag: String) {
+        guard !selectedTags.contains(where: { $0.caseInsensitiveCompare(tag) == .orderedSame }) else { return }
+        selectedTags.insert(tag)
+    }
+
+    private func addSpecification() {
+        specifications.append(Specification(
+            id: "spec_" + String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(17)),
+            specName: "New specification",
+            details: "",
+            order: specifications.count + 1,
+            productId: productID,
+            productTitle: name,
+            pictures: []
+        ))
+        renumberSpecifications()
+    }
+
+    private func moveSpecification(at index: Int, offset: Int) {
+        let destination = index + offset
+        guard specifications.indices.contains(index), specifications.indices.contains(destination) else { return }
+        specifications.swapAt(index, destination)
+        renumberSpecifications()
+    }
+
+    private func sortSpecifications(ascending: Bool) {
+        specifications.sort {
+            let result = $0.specName.localizedCaseInsensitiveCompare($1.specName)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }
+        renumberSpecifications()
+    }
+
+    @MainActor
+    private func importPhotos(_ items: [PhotosPickerItem], for targetSpecID: String?) async {
+        for item in items {
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self) else {
+                    throw PhotoImportError.unreadableImage
+                }
+                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                let attachment = try store.saveLocalPhoto(
+                    data,
+                    originalName: "\(targetSpecID == nil ? "product" : "spec")_\(UUID().uuidString).\(ext)"
+                )
+                if let targetSpecID,
+                   let index = specifications.firstIndex(where: { $0.id == targetSpecID }) {
+                    specifications[index].pictures.append(attachment)
+                } else {
+                    pictures.append(attachment)
+                }
+            } catch {
+                errorText = "Could not import a selected photo: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func renumberSpecifications() {
+        for index in specifications.indices {
+            specifications[index].order = index + 1
+            specifications[index].productId = productID
+            specifications[index].productTitle = name
+        }
+    }
+
+    private func save() {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tags = selectedTags.sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+        renumberSpecifications()
+        let savedProduct = Product(
+            id: productID,
+            name: trimmedName,
+            brand: brand.trimmingCharacters(in: .whitespacesAndNewlines),
+            tags: tags,
+            overview: overview,
+            pictures: pictures,
+            createdTime: product?.createdTime ?? ISO8601DateFormatter().string(from: Date())
+        )
+        store.saveProduct(savedProduct, specifications: specifications)
+        store.statusMessage = product == nil ? "Product added." : "Product updated."
+        dismiss()
+    }
+
+    private enum PhotoImportError: LocalizedError {
+        case unreadableImage
+        var errorDescription: String? { "The selected photo could not be read." }
+    }
 }
 
 private struct FlexibleTagList: View {
@@ -1327,6 +2049,34 @@ private struct FlexibleTagList: View {
                     .background(Color.indigo.opacity(0.1), in: Capsule())
                     .foregroundStyle(.indigo)
             }
+        }
+    }
+}
+
+private struct LocalPhotoPickerButton: View {
+    let title: String
+    let systemImage: String
+    let onSelection: ([PhotosPickerItem]) -> Void
+    @State private var selection: [PhotosPickerItem] = []
+
+    var body: some View {
+        PhotosPicker(selection: $selection, maxSelectionCount: 12, matching: .images) {
+            Group {
+                if title.isEmpty {
+                    Image(systemName: systemImage)
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color(uiColor: .systemGray6), in: RoundedRectangle(cornerRadius: 9))
+                } else {
+                    Label(title, systemImage: systemImage)
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
+        }
+        .onChange(of: selection) { _, items in
+            guard !items.isEmpty else { return }
+            onSelection(items)
+            selection = []
         }
     }
 }

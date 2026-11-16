@@ -355,13 +355,14 @@ final class ProductStore: ObservableObject {
         )
         let uniqueNames = inheritedSpecNames.reduce(into: [String]()) { names, name in
             let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !clean.isEmpty && !names.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
+            let key = specificationNameKey(clean)
+            if !key.isEmpty && !names.contains(where: { specificationNameKey($0) == key }) {
                 names.append(clean)
             }
         }
         let inheritedSpecs = uniqueNames.enumerated().map { index, name in
             let reference = specifications.first {
-                $0.specName.caseInsensitiveCompare(name) == .orderedSame &&
+                specificationNameKey($0.specName) == specificationNameKey(name) &&
                     (($0.unit?.isEmpty == false) || $0.isNumeric != nil)
             }
             return Specification(

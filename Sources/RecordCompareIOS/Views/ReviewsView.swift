@@ -490,6 +490,28 @@ private struct ReviewDetailView: View {
     }
 }
 
+struct ProductReviewActionsSheet: View {
+    let review: Review
+    let startEditing: Bool
+    @State private var showingEditor = false
+
+    var body: some View {
+        NavigationStack {
+            ReviewDetailView(review: review) {
+                showingEditor = true
+            }
+        }
+        .sheet(isPresented: $showingEditor) {
+            ReviewEditorView(review: review)
+        }
+        .onAppear {
+            if startEditing {
+                showingEditor = true
+            }
+        }
+    }
+}
+
 private struct ReviewMarkdownView: View {
     let markdown: String
 

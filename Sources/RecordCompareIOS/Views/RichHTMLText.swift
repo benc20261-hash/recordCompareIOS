@@ -9,6 +9,11 @@ struct RichHTMLText: UIViewRepresentable {
     var textColor: UIColor = .label
     var alignment: NSTextAlignment = .natural
 
+    static func unitBadgeMarker(for unit: String) -> String {
+        let payload = Data(unit.utf8).base64EncodedString()
+        return "<span data-rc-unit-badge=\"\(payload)\"></span>"
+    }
+
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
         view.isEditable = false
@@ -41,7 +46,23 @@ struct RichHTMLText: UIViewRepresentable {
         textColor: UIColor,
         alignment: NSTextAlignment
     ) -> NSAttributedString {
-        let cleanHTML = html
+        let normalizedHTML = html
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\\r\\n", with: "\n")
+            .replacingOccurrences(of: "\\n", with: "\n")
+        let (htmlWithoutBadges, unitBadges) = Self.extractUnitBadges(from: normalizedHTML)
+        let containsMarkup = htmlWithoutBadges.range(
+            of: #"</?[A-Za-z][^>]*>"#,
+            options: .regularExpression
+        ) != nil
+        let contentHTML = containsMarkup
+            ? htmlWithoutBadges.replacingOccurrences(
+                of: #"(?<=[^>])\n(?=[^<])"#,
+                with: "<br>",
+                options: .regularExpression
+            )
+            : htmlWithoutBadges.replacingOccurrences(of: "\n", with: "<br>")
+        let cleanHTML = contentHTML
             .replacingOccurrences(of: #"(?is)<script\b[^>]*>.*?</script>"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"(?is)<(iframe|object|embed)\b[^>]*>.*?</\1>"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"(?is)<(img|figure)\b[^>]*>.*?</figure>|<img\b[^>]*>"#, with: "", options: .regularExpression)
@@ -64,6 +85,11 @@ struct RichHTMLText: UIViewRepresentable {
             documentAttributes: nil
         )) ?? NSAttributedString(string: fallback)
         let result = NSMutableAttributedString(attributedString: parsed)
+        for badge in unitBadges {
+            let range = (result.string as NSString).range(of: badge.marker)
+            guard range.location != NSNotFound else { continue }
+            result.replaceCharacters(in: range, with: NSAttributedString(attachment: Self.unitBadgeAttachment(for: badge.unit)))
+        }
         let fullRange = NSRange(location: 0, length: result.length)
         result.enumerateAttribute(.font, in: fullRange) { value, range, _ in
             let oldFont = value as? UIFont
@@ -79,6 +105,65 @@ struct RichHTMLText: UIViewRepresentable {
         style.alignment = alignment
         result.addAttribute(.paragraphStyle, value: style, range: fullRange)
         return result
+    }
+
+    private struct UnitBadgeMarker {
+        let marker: String
+        let unit: String
+    }
+
+    private static func extractUnitBadges(from html: String) -> (String, [UnitBadgeMarker]) {
+        let pattern = #"<span\b[^>]*data-rc-unit-badge="([A-Za-z0-9+/=]+)"[^>]*>\s*</span>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return (html, [])
+        }
+        let nsHTML = html as NSString
+        let matches = regex.matches(in: html, range: NSRange(location: 0, length: nsHTML.length))
+        guard !matches.isEmpty else { return (html, []) }
+
+        let mutableHTML = NSMutableString(string: html)
+        var badges: [UnitBadgeMarker] = []
+        for match in matches.reversed() {
+            guard match.numberOfRanges > 1,
+                  let payload = Data(base64Encoded: nsHTML.substring(with: match.range(at: 1))),
+                  let unit = String(data: payload, encoding: .utf8),
+                  !unit.isEmpty else { continue }
+            let marker = "RCUNITBADGE_\(UUID().uuidString)_END"
+            mutableHTML.replaceCharacters(in: match.range, with: marker)
+            badges.append(UnitBadgeMarker(marker: marker, unit: unit))
+        }
+        return (mutableHTML as String, badges)
+    }
+
+    private static func unitBadgeAttachment(for unit: String) -> NSTextAttachment {
+        let label = unit.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let font = UIFont.monospacedSystemFont(ofSize: 11, weight: .semibold)
+        let textSize = (label as NSString).size(withAttributes: [.font: font])
+        let badgeSize = CGSize(width: ceil(textSize.width) + 12, height: ceil(font.lineHeight) + 4)
+        let renderer = UIGraphicsImageRenderer(size: badgeSize)
+        let image = renderer.image { _ in
+            let rect = CGRect(origin: .zero, size: badgeSize).insetBy(dx: 0.5, dy: 0.5)
+            let badge = UIBezierPath(roundedRect: rect, cornerRadius: 5)
+            UIColor(red: 241.0 / 255.0, green: 245.0 / 255.0, blue: 249.0 / 255.0, alpha: 1).setFill()
+            badge.fill()
+            UIColor(red: 203.0 / 255.0, green: 213.0 / 255.0, blue: 225.0 / 255.0, alpha: 1).setStroke()
+            badge.lineWidth = 1
+            badge.stroke()
+            let textRect = CGRect(
+                x: 6,
+                y: (badgeSize.height - font.lineHeight) / 2,
+                width: textSize.width,
+                height: font.lineHeight
+            )
+            label.draw(in: textRect, withAttributes: [
+                .font: font,
+                .foregroundColor: UIColor(red: 51.0 / 255.0, green: 65.0 / 255.0, blue: 85.0 / 255.0, alpha: 1)
+            ])
+        }
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = CGRect(x: 0, y: -3, width: badgeSize.width, height: badgeSize.height)
+        return attachment
     }
 }
 

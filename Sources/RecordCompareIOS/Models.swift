@@ -120,6 +120,37 @@ struct Specification: Codable, Identifiable, Equatable {
     }
 }
 
+func specificationNameKey(_ name: String) -> String {
+    name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+}
+
+func specificationBelongs(_ specification: Specification, to product: Product) -> Bool {
+    specification.productId == product.id ||
+        (specification.productTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare(product.name.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame)
+}
+
+func orderedSpecificationNames(for products: [Product], specifications: [Specification]) -> [String] {
+    var names: [String] = []
+    var seen = Set<String>()
+    for product in products {
+        let ordered = specifications.enumerated()
+            .filter { specificationBelongs($0.element, to: product) }
+            .sorted {
+                $0.element.order == $1.element.order
+                    ? $0.offset < $1.offset
+                    : $0.element.order < $1.element.order
+            }
+        for (_, specification) in ordered {
+            let name = specification.specName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = specificationNameKey(name)
+            guard !key.isEmpty, seen.insert(key).inserted else { continue }
+            names.append(name)
+        }
+    }
+    return names
+}
+
 struct Review: Codable, Identifiable, Equatable {
     var id: String
     var reviewNumber: Int

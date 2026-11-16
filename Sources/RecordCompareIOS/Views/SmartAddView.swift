@@ -23,14 +23,7 @@ struct SmartAddView: View {
     }
 
     private var matrixSpecNames: [String] {
-        var names: [String] = []
-        for product in selectedProducts {
-            for spec in productSpecifications(for: product) where
-                !names.contains(where: { $0.caseInsensitiveCompare(spec.specName) == .orderedSame }) {
-                names.append(spec.specName)
-            }
-        }
-        return names
+        orderedSpecificationNames(for: selectedProducts, specifications: store.specifications)
     }
 
     private var filterOptions: [String] {
@@ -515,13 +508,13 @@ struct SmartAddView: View {
 
     private func productSpecifications(for product: Product) -> [Specification] {
         store.specifications
-            .filter { $0.productId == product.id || $0.productTitle == product.name }
+            .filter { specificationBelongs($0, to: product) }
             .sorted { $0.order < $1.order }
     }
 
     private func specification(for product: Product, name: String) -> Specification? {
         productSpecifications(for: product).first {
-            $0.specName.caseInsensitiveCompare(name) == .orderedSame
+            specificationNameKey($0.specName) == specificationNameKey(name)
         }
     }
 
