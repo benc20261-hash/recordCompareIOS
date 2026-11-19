@@ -32,16 +32,11 @@ struct MainTabView: View {
     private var headerView: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Image(systemName: "scale.3d")
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(10)
-                    .background(Color.indigo)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                ProductCompareMark(size: 32)
 
                 Text("ProductCompare")
-                    .font(.system(size: 30, weight: .heavy))
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 20, weight: .black))
+                    .foregroundStyle(Color(red: 15 / 255.0, green: 23 / 255.0, blue: 42 / 255.0))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
                     .layoutPriority(1)
@@ -50,11 +45,11 @@ struct MainTabView: View {
 
                 Text("Offline")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.indigo)
+                    .foregroundStyle(ProductCompareBrand.purple)
                     .fixedSize(horizontal: true, vertical: false)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(Color.indigo.opacity(0.1), in: Capsule())
+                    .background(ProductCompareBrand.purple.opacity(0.1), in: Capsule())
             }
             .padding(.horizontal)
             .padding(.top, 12)
@@ -71,6 +66,61 @@ struct MainTabView: View {
         case .smartAdd: "sparkles"
         case .reviews: "doc.text"
         case .backup: "archivebox"
+        }
+    }
+
+    private enum ProductCompareBrand {
+        static let purple = Color(red: 79 / 255.0, green: 70 / 255.0, blue: 229 / 255.0)
+    }
+
+    private struct ProductCompareMark: View {
+        let size: CGFloat
+
+        var body: some View {
+            Canvas { context, canvasSize in
+                func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+                    CGPoint(x: x * canvasSize.width, y: y * canvasSize.height)
+                }
+
+                var scale = Path()
+                scale.move(to: point(0.5, 0.18))
+                scale.addLine(to: point(0.5, 0.8))
+                scale.move(to: point(0.28, 0.32))
+                scale.addLine(to: point(0.72, 0.32))
+                scale.move(to: point(0.32, 0.32))
+                scale.addLine(to: point(0.38, 0.56))
+                scale.move(to: point(0.68, 0.32))
+                scale.addLine(to: point(0.62, 0.56))
+                scale.move(to: point(0.34, 0.82))
+                scale.addLine(to: point(0.66, 0.82))
+
+                var leftPan = Path()
+                leftPan.move(to: point(0.22, 0.56))
+                leftPan.addLine(to: point(0.42, 0.56))
+                leftPan.addLine(to: point(0.38, 0.67))
+                leftPan.addLine(to: point(0.26, 0.67))
+                leftPan.closeSubpath()
+
+                var rightPan = Path()
+                rightPan.move(to: point(0.58, 0.56))
+                rightPan.addLine(to: point(0.78, 0.56))
+                rightPan.addLine(to: point(0.74, 0.67))
+                rightPan.addLine(to: point(0.62, 0.67))
+                rightPan.closeSubpath()
+
+                let style = StrokeStyle(
+                    lineWidth: canvasSize.width * 0.065,
+                    lineCap: .round,
+                    lineJoin: .round
+                )
+                context.stroke(scale, with: .color(.white), style: style)
+                context.stroke(leftPan, with: .color(.white), style: style)
+                context.stroke(rightPan, with: .color(.white), style: style)
+            }
+            .frame(width: size, height: size)
+                .background(ProductCompareBrand.purple)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.25, style: .continuous))
+                .accessibilityHidden(true)
         }
     }
 }

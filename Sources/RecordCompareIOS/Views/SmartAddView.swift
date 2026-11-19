@@ -1,4 +1,3 @@
-import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -7,7 +6,8 @@ struct SmartAddView: View {
     @State private var slots: [String?] = [nil, nil]
     @State private var didInitializeSlots = false
     @State private var searchText = ""
-    @State private var selectedFilter = "All"
+    @State private var selectedFilterValue = "All"
+    @State private var filterScope: SmartAddFilterScope = .all
     @State private var newProductName = ""
     @State private var targetProductID = ""
     @State private var newSpecName = ""
@@ -15,6 +15,8 @@ struct SmartAddView: View {
     @State private var newSpecUnit = ""
     @State private var newSpecIsNumeric = false
     @State private var activeSheet: SmartAddSheetRequest?
+    @State private var productToView: Product?
+    @State private var photoViewer: ProductPhotoViewerRequest?
     @State private var specToDelete: Specification?
     @State private var confirmResetSlots = false
 
@@ -26,26 +28,51 @@ struct SmartAddView: View {
         orderedSpecificationNames(for: selectedProducts, specifications: store.specifications)
     }
 
-    private var filterOptions: [String] {
-        var values = ["All"]
-        for value in store.allTags + store.allBrands + store.products.map(\.name)
-        where !values.contains(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) {
-            values.append(value)
+    private var filterOptions: [SmartAddFilterOption] {
+        let values: [(String, SmartAddFilterScope)] = switch filterScope {
+        case .all:
+            store.allTags.map { ($0, .tag) } +
+                store.allBrands.map { ($0, .brand) } +
+                store.products.map { ($0.name, .product) }
+        case .tag:
+            store.allTags.map { ($0, .tag) }
+        case .brand:
+            store.allBrands.map { ($0, .brand) }
+        case .product:
+            store.products.map { ($0.name, .product) }
         }
+        var seen = Set<String>()
         return values
+            .filter { seen.insert($0.0.lowercased()).inserted }
+            .map { SmartAddFilterOption(title: $0.0, scope: $0.1) }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    private var visibleFilterOptions: [SmartAddFilterOption] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return filterOptions }
+        return filterOptions.filter { $0.title.localizedCaseInsensitiveContains(query) }
     }
 
     private var pickerCandidates: [Product] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         return store.products.filter { product in
-            let matchesFilter = selectedFilter == "All" ||
-                product.tags.contains { $0.caseInsensitiveCompare(selectedFilter) == .orderedSame } ||
-                product.brand.caseInsensitiveCompare(selectedFilter) == .orderedSame ||
-                product.name.caseInsensitiveCompare(selectedFilter) == .orderedSame
-            let specs = productSpecifications(for: product)
-            let searchable = ([product.name, product.brand, product.overview] + product.tags +
-                specs.flatMap { [$0.specName, $0.details] }).joined(separator: " ")
-            return matchesFilter && (query.isEmpty || searchable.localizedCaseInsensitiveContains(query))
+            guard query.isEmpty || searchMatchingText(for: product).localizedCaseInsensitiveContains(query) else {
+                return false
+            }
+            guard selectedFilterValue != "All" else { return true }
+            switch filterScope {
+            case .all:
+                return product.tags.contains { $0.caseInsensitiveCompare(selectedFilterValue) == .orderedSame } ||
+                    product.brand.caseInsensitiveCompare(selectedFilterValue) == .orderedSame ||
+                    product.name.caseInsensitiveCompare(selectedFilterValue) == .orderedSame
+            case .tag:
+                return product.tags.contains { $0.caseInsensitiveCompare(selectedFilterValue) == .orderedSame }
+            case .brand:
+                return product.brand.caseInsensitiveCompare(selectedFilterValue) == .orderedSame
+            case .product:
+                return product.name.caseInsensitiveCompare(selectedFilterValue) == .orderedSame
+            }
         }
     }
 
@@ -74,6 +101,7 @@ struct SmartAddView: View {
                     }
                 }
                 .padding(16)
+                .pointerDragScrolling()
             }
             .background(Color(uiColor: .systemGray6))
             .navigationTitle("Smart Add")
@@ -95,6 +123,9 @@ struct SmartAddView: View {
             .onChange(of: store.comparedProductOrder) { _, _ in
                 if didInitializeSlots { syncSlotsFromStore(useDefaults: false) }
             }
+            .onChange(of: searchText) { _, query in
+                updateFilterScope(for: query)
+            }
             .sheet(item: $activeSheet) { request in
                 switch request.content {
                 case .picker(let target):
@@ -105,12 +136,18 @@ struct SmartAddView: View {
                         onSelect: { product in select(product, at: target.index) }
                     )
                 case .specEditor(let editor):
-                    SmartSpecEditorSheet(product: editor.product, spec: editor.spec, specName: editor.specName)
+                    SpecificationEditorSheet(product: editor.product, specification: editor.specification)
                 case .productAttributes(let product):
                     ProductAttributesSheet(product: product)
                 case .specOrder(let product):
                     ProductSpecOrderSheet(product: product)
                 }
+            }
+            .sheet(item: $productToView) { product in
+                ProductDetailSheet(product: product)
+            }
+            .fullScreenCover(item: $photoViewer) { request in
+                ProductPhotoViewer(images: request.images, initialIndex: request.initialIndex)
             }
             .alert("Delete specification?", isPresented: Binding(
                 get: { specToDelete != nil },
@@ -167,17 +204,61 @@ struct SmartAddView: View {
         VStack(alignment: .leading, spacing: 9) {
             Text("Filter products by tag / brand / product")
                 .font(.subheadline.weight(.semibold))
-            HStack {
+            HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search products, brands, tags, or specs", text: $searchText)
+                TextField("Search tags, brands, or products", text: $searchText)
                     .textInputAutocapitalization(.never)
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel("Clear product search")
+                }
             }
             .padding(11)
             .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
-            Picker("Filter", selection: $selectedFilter) {
-                ForEach(filterOptions, id: \.self) { Text($0).tag($0) }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    ForEach(SmartAddFilterScope.allCases) { scope in
+                        let selected = filterScope == scope
+                        Button {
+                            filterScope = scope
+                            selectedFilterValue = "All"
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: scope.symbol)
+                                    .foregroundStyle(selected ? .white : scope.tint)
+                                Text("\(scope.title) (\(scope.count(tags: store.allTags.count, brands: store.allBrands.count, products: store.products.count)))")
+                            }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(selected ? .white : .primary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(selected ? Color.indigo : Color(uiColor: .systemGray6), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
-            .pickerStyle(.menu)
+            .pointerDragScrolling()
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    filterOptionButton(title: "All", scope: .all)
+                    ForEach(visibleFilterOptions) { option in
+                        filterOptionButton(title: option.title, scope: option.scope)
+                    }
+                }
+                .pointerDragScrolling()
+            }
+            if pickerCandidates.isEmpty {
+                Text("No products match the current search and filter.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(14)
         .cardSurface()
@@ -224,7 +305,16 @@ struct SmartAddView: View {
                 Text("Slot \(index + 1) of \(slots.count)")
                     .font(.subheadline.weight(.bold))
                 Spacer()
-                if product != nil {
+                if let product {
+                    Button {
+                        productToView = product
+                    } label: {
+                        Label("View product", systemImage: "eye")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("View \(product.name)")
                     Button("Change") {
                         activeSheet = SmartAddSheetRequest(content: .picker(SlotPickerRequest(index: index, currentID: productID)))
                     }
@@ -366,9 +456,6 @@ struct SmartAddView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 4)
-                    Button("Edit") { activeSheet = SmartAddSheetRequest(content: .productAttributes(product)) }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
                     Button("Specs") { activeSheet = SmartAddSheetRequest(content: .specOrder(product)) }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -437,8 +524,20 @@ struct SmartAddView: View {
                                 Text(product.name).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                                 Spacer()
                                 Button {
+                                    let editorSpec = spec ?? Specification(
+                                        id: "spec_" + String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(17)),
+                                        specName: name,
+                                        details: "",
+                                        order: store.specifications
+                                            .filter { $0.productId == product.id || $0.productTitle == product.name }
+                                            .map(\.order)
+                                            .max()
+                                            .map { $0 + 1 } ?? 1,
+                                        productId: product.id,
+                                        productTitle: product.name
+                                    )
                                     activeSheet = SmartAddSheetRequest(content: .specEditor(
-                                        SpecEditorRequest(product: product, specName: name, spec: spec)
+                                        SpecEditorRequest(product: product, specification: editorSpec)
                                     ))
                                 } label: {
                                     Label(spec == nil ? "Add data" : "Edit", systemImage: spec == nil ? "plus" : "pencil")
@@ -484,9 +583,16 @@ struct SmartAddView: View {
             HStack(spacing: 8) {
                 ForEach(attachments) { attachment in
                     if let url = store.localURL(for: attachment) {
-                        LocalAttachmentThumbnail(url: url, name: attachment.name)
+                        Button {
+                            presentImage(attachment, from: attachments)
+                        } label: {
+                            LocalAttachmentThumbnail(url: url, name: attachment.name)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("View image \(attachment.name)")
                     }
                 }
+                .pointerDragScrolling()
             }
         }
     }
@@ -494,7 +600,13 @@ struct SmartAddView: View {
     private func productThumbnail(_ product: Product) -> some View {
         Group {
             if let picture = product.pictures.first, let url = store.localURL(for: picture) {
-                LocalAttachmentThumbnail(url: url, name: product.name)
+                Button {
+                    presentImage(picture, from: product.pictures)
+                } label: {
+                    LocalAttachmentThumbnail(url: url, name: product.name)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("View photo of \(product.name)")
             } else {
                 Image(systemName: "shippingbox")
                     .foregroundStyle(.indigo)
@@ -504,6 +616,62 @@ struct SmartAddView: View {
         }
         .frame(width: 42, height: 42)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func searchMatchingText(for product: Product) -> String {
+        let specifications = productSpecifications(for: product)
+        return ([product.name, product.brand, product.overview] + product.tags +
+            specifications.flatMap { [$0.specName, $0.details, $0.unit ?? ""] }).joined(separator: " ")
+    }
+
+    private func filterOptionButton(title: String, scope: SmartAddFilterScope) -> some View {
+        let selected = selectedFilterValue.caseInsensitiveCompare(title) == .orderedSame
+        return Button {
+            selectedFilterValue = title
+            if title != "All" { filterScope = scope }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: scope.symbol)
+                    .foregroundStyle(selected ? .white : scope.tint)
+                Text(title)
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(selected ? .white : Color.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(selected ? Color.indigo : Color(uiColor: .systemGray6), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func updateFilterScope(for query: String) {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, filterScope != .all,
+              !filterOptions.contains(where: { $0.title.localizedCaseInsensitiveContains(query) }) else {
+            return
+        }
+        let nextScope: SmartAddFilterScope
+        if store.allTags.contains(where: { $0.localizedCaseInsensitiveContains(query) }) {
+            nextScope = .tag
+        } else if store.allBrands.contains(where: { $0.localizedCaseInsensitiveContains(query) }) {
+            nextScope = .brand
+        } else if store.products.contains(where: { $0.name.localizedCaseInsensitiveContains(query) }) {
+            nextScope = .product
+        } else {
+            nextScope = .all
+        }
+        filterScope = nextScope
+        selectedFilterValue = "All"
+    }
+
+    private func presentImage(_ attachment: MediaAttachment, from attachments: [MediaAttachment]) {
+        let images = attachments.compactMap { item -> ProductPhotoViewerItem? in
+            guard let url = store.localURL(for: item),
+                  let image = UIImage(contentsOfFile: url.path) else { return nil }
+            return ProductPhotoViewerItem(id: item.id, name: item.name, image: image)
+        }
+        guard let index = images.firstIndex(where: { $0.id == attachment.id }) else { return }
+        photoViewer = ProductPhotoViewerRequest(images: images, initialIndex: index)
     }
 
     private func productSpecifications(for product: Product) -> [Specification] {
@@ -632,107 +800,6 @@ private struct ProductSlotPickerSheet: View {
     }
 }
 
-private struct SmartSpecEditorSheet: View {
-    @EnvironmentObject private var store: ProductStore
-    @Environment(\.dismiss) private var dismiss
-    let product: Product
-    let spec: Specification?
-    let specName: String
-    @State private var details: String
-    @State private var unit: String
-    @State private var isNumeric: Bool
-    @State private var pictures: [MediaAttachment]
-    @State private var photoItems: [PhotosPickerItem] = []
-    @State private var errorText: String?
-
-    init(product: Product, spec: Specification?, specName: String) {
-        self.product = product
-        self.spec = spec
-        self.specName = specName
-        _details = State(initialValue: spec?.details ?? "")
-        _unit = State(initialValue: spec?.unit ?? "")
-        _isNumeric = State(initialValue: spec?.isNumeric ?? !(spec?.unit?.isEmpty ?? true))
-        _pictures = State(initialValue: spec?.pictures ?? [])
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Specification") {
-                    Text(specName).font(.headline)
-                    TextField("Details / value", text: $details, axis: .vertical)
-                        .lineLimit(2...8)
-                    TextField("Unit (optional)", text: $unit)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack {
-                            ForEach(["g", "kg", "inch", "cm", "mm", "year", "month", "mAh", "Hz", "$", "GB"], id: \.self) { value in
-                                Button(value) { unit = value }
-                                    .buttonStyle(.bordered)
-                                    .tint(unit.caseInsensitiveCompare(value) == .orderedSame ? .indigo : .gray)
-                            }
-                        }
-                    }
-                    Toggle("Numeric comparison", isOn: $isNumeric)
-                    Text("When enabled, Compare can show numeric bars and choose higher/lower as the preferred value.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Section("Specification photos") {
-                    PhotosPicker(selection: $photoItems, maxSelectionCount: 12, matching: .images) {
-                        Label("Add photos", systemImage: "photo")
-                    }
-                    if !pictures.isEmpty {
-                        Text("\(pictures.count) photo\(pictures.count == 1 ? "" : "s") attached")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                if let errorText {
-                    Section { Text(errorText).foregroundStyle(.red) }
-                }
-            }
-            .navigationTitle(spec == nil ? "Add data" : "Edit specification")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        store.updateInlineSpec(
-                            productID: product.id,
-                            specName: specName,
-                            details: details,
-                            pictures: pictures,
-                            unit: unit,
-                            isNumeric: isNumeric
-                        )
-                        dismiss()
-                    }
-                }
-            }
-            .onChange(of: photoItems) { _, items in
-                guard !items.isEmpty else { return }
-                Task { await importPhotos(items) }
-            }
-        }
-    }
-
-    @MainActor
-    private func importPhotos(_ items: [PhotosPickerItem]) async {
-        defer { photoItems = [] }
-        for item in items {
-            do {
-                guard let data = try await item.loadTransferable(type: Data.self) else {
-                    throw PhotoImportError.unreadableImage
-                }
-                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                let photo = try store.saveLocalPhoto(data, originalName: "spec_\(UUID().uuidString).\(ext)")
-                pictures.append(photo)
-            } catch {
-                errorText = "Could not import a selected photo: \(error.localizedDescription)"
-            }
-        }
-    }
-}
-
 private struct ProductAttributesSheet: View {
     @EnvironmentObject private var store: ProductStore
     @Environment(\.dismiss) private var dismiss
@@ -794,7 +861,7 @@ private struct ProductSpecOrderSheet: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(spec.specName).font(.headline)
-                            RichHTMLText(html: spec.details.isEmpty ? "No data" : spec.details, fontSize: 14, textColor: .label)
+                            Text(spec.details.isEmpty ? "No data" : RichHTMLText.plainText(from: spec.details))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
@@ -851,8 +918,7 @@ private struct SlotPickerRequest: Identifiable {
 private struct SpecEditorRequest: Identifiable {
     let id = UUID()
     let product: Product
-    let specName: String
-    let spec: Specification?
+    let specification: Specification
 }
 
 private struct SmartAddSheetRequest: Identifiable {
@@ -867,14 +933,59 @@ private struct SmartAddSheetRequest: Identifiable {
     }
 }
 
+private enum SmartAddFilterScope: String, CaseIterable, Identifiable {
+    case all
+    case tag
+    case brand
+    case product
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .tag: "Tags"
+        case .brand: "Brands"
+        case .product: "Product"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .all: "square.grid.2x2.fill"
+        case .tag: "tag.fill"
+        case .brand: "building.2.fill"
+        case .product: "shippingbox.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .all: .indigo
+        case .tag: .blue
+        case .brand: .orange
+        case .product: .green
+        }
+    }
+
+    func count(tags: Int, brands: Int, products: Int) -> Int {
+        switch self {
+        case .all: tags + brands + products
+        case .tag: tags
+        case .brand: brands
+        case .product: products
+        }
+    }
+}
+
+private struct SmartAddFilterOption: Identifiable {
+    let title: String
+    let scope: SmartAddFilterScope
+    var id: String { "\(scope.rawValue):\(title)" }
+}
+
 private extension View {
     func cardSurface() -> some View {
         background(Color.white, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.gray.opacity(0.14)))
     }
-}
-
-private enum PhotoImportError: LocalizedError {
-    case unreadableImage
-    var errorDescription: String? { "The selected photo could not be read." }
 }

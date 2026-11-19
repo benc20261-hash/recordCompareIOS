@@ -2,6 +2,13 @@ import Foundation
 import SwiftUI
 import ZIPFoundation
 
+private typealias BackupProgressHandler = @Sendable (String) async -> Void
+
+private struct BackupRestorePayload: Sendable {
+    let backup: DatabaseBackup
+    let message: String
+}
+
 @MainActor
 final class ProductStore: ObservableObject {
     @Published var products: [Product] = [] { didSet { persist() } }
@@ -16,6 +23,7 @@ final class ProductStore: ObservableObject {
     @Published var comparedProductOrder: [String] = []
     @Published var catalogSort: CatalogSort = .nameAscending
     @Published var statusMessage: String?
+    @Published var backupProgressMessage: String?
 
     enum CatalogSort: String, CaseIterable, Identifiable {
         case nameAscending
@@ -99,6 +107,10 @@ final class ProductStore: ObservableObject {
     }
 
     func localURL(for attachment: MediaAttachment) -> URL? {
+        Self.resolveLocalURL(for: attachment, mediaURL: mediaURL)
+    }
+
+    nonisolated private static func resolveLocalURL(for attachment: MediaAttachment, mediaURL: URL) -> URL? {
         let raw = attachment.url
         if raw.hasPrefix("app-media://") {
             let filename = String(raw.dropFirst("app-media://".count))
@@ -524,20 +536,65 @@ final class ProductStore: ObservableObject {
         reviews[index].productTitles = linked.map(\.name)
     }
 
-    func importBackup(from url: URL) throws -> String {
+    func importBackup(from url: URL) async throws -> String {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        let backupMediaURL = self.mediaURL
+        let progressStore = self
+        let progress: BackupProgressHandler = { message in
+            await progressStore.updateBackupProgress(message)
+        }
+        let payload = try await Task.detached(priority: .userInitiated) {
+            try await Self.restoreBackupWorker(from: url, mediaURL: backupMediaURL, progress: progress)
+        }.value
+
+        backupProgressMessage = "Updating the restored catalog…"
+        isRestoring = true
+        products = payload.backup.products
+        specifications = payload.backup.specifications
+        reviews = payload.backup.reviews
+        users = payload.backup.users
+        comparedProductIDs = []
+        comparedProductOrder = []
+        isRestoring = false
+        return payload.message
+    }
+
+    nonisolated private static func restoreBackupWorker(
+        from url: URL,
+        mediaURL: URL,
+        progress: @escaping BackupProgressHandler
+    ) async throws -> BackupRestorePayload {
+        await progress("Copying the selected backup from Files or cloud storage…")
         let staging = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: staging) }
+        let stagedBackupURL = staging.appendingPathComponent(url.lastPathComponent)
+        var coordinationError: NSError?
+        var copyError: Error?
+        var didCopy = false
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinationError) { coordinatedURL in
+            do {
+                try FileManager.default.copyItem(at: coordinatedURL, to: stagedBackupURL)
+                didCopy = true
+            } catch {
+                copyError = error
+            }
+        }
+        if let coordinationError { throw coordinationError }
+        if let copyError { throw copyError }
+        guard didCopy else { throw CocoaError(.fileReadUnknown) }
+
         let lower = url.lastPathComponent.lowercased()
         let isArchiveBackup = lower.hasSuffix(".zip")
         let jsonData: Data
         var manifestPictureCount: Int?
         var extractedFiles: [(archivePath: String, originalName: String, url: URL)] = []
         if isArchiveBackup {
-            let archive = try Archive(url: url, accessMode: .read)
+            let archive = try Archive(url: stagedBackupURL, accessMode: .read)
             var databaseEntry: Entry?
+            await progress("Reading catalog data and extracting archived photos…")
             for entry in archive {
                 let archivePath = entry.path.replacingOccurrences(of: "\\", with: "/")
                 let components = archivePath.split(separator: "/")
@@ -565,13 +622,17 @@ final class ProductStore: ObservableObject {
             _ = try archive.extract(entry, to: target)
             jsonData = try Data(contentsOf: target)
         } else {
-            jsonData = try Data(contentsOf: url)
+            await progress("Reading the selected database file…")
+            jsonData = try Data(contentsOf: stagedBackupURL)
         }
 
         let decoder = JSONDecoder()
         let backup = try decoder.decode(DatabaseBackup.self, from: jsonData)
         try FileManager.default.createDirectory(at: mediaURL, withIntermediateDirectories: true)
         var importedMedia: [(archivePath: String, originalName: String, localName: String)] = []
+        if !extractedFiles.isEmpty {
+            await progress("Restoring photos to on-device storage…")
+        }
         for file in extractedFiles {
             var localName = file.originalName
             var destination = mediaURL.appendingPathComponent(localName)
@@ -627,9 +688,11 @@ final class ProductStore: ObservableObject {
         }
         func isResolved(_ attachment: MediaAttachment) -> Bool {
             let resolvesToImportedFile = attachment.url.hasPrefix("app-media://") &&
-                localURL(for: attachment) != nil
-            return isArchiveBackup ? resolvesToImportedFile : localURL(for: attachment) != nil
+                resolveLocalURL(for: attachment, mediaURL: mediaURL) != nil
+            return isArchiveBackup ? resolvesToImportedFile :
+                resolveLocalURL(for: attachment, mediaURL: mediaURL) != nil
         }
+        await progress("Checking restored product, specification, and review images…")
         var unresolvedAttachments: [String] = []
         for product in importedProducts {
             for picture in product.pictures where !isResolved(picture) {
@@ -652,26 +715,43 @@ final class ProductStore: ObservableObject {
         let uniqueMissingReferences = missingMediaReferences.reduce(into: [String]()) { result, reference in
             if !result.contains(reference) { result.append(reference) }
         }
-        isRestoring = true
-        products = importedProducts; specifications = importedSpecs; reviews = importedReviews; users = backup.users
-        comparedProductIDs = []
-        comparedProductOrder = []
-        isRestoring = false
-        persist()
-        let summary = "Restored \(products.count) products, \(specifications.count) specifications, and \(reviews.count) reviews."
+        var restoredBackup = backup
+        restoredBackup.products = importedProducts
+        restoredBackup.specifications = importedSpecs
+        restoredBackup.reviews = importedReviews
+        await progress("Applying restored catalog data…")
+        let summary = "Restored \(importedProducts.count) products, \(importedSpecs.count) specifications, and \(importedReviews.count) reviews."
         let uniqueMediaCount = Set(importedMedia.map(\.originalName)).count
         let manifestNote = manifestPictureCount.map {
             $0 == uniqueMediaCount
                 ? ""
                 : " The manifest declares \($0) pictures; the archive contains \(uniqueMediaCount) distinct media filenames across \(importedMedia.count) entries."
         } ?? ""
+        var message = summary + manifestNote
         if !uniqueMissingReferences.isEmpty {
             let shown = uniqueMissingReferences.prefix(5).joined(separator: "; ")
             let remaining = uniqueMissingReferences.count - min(uniqueMissingReferences.count, 5)
             let more = remaining > 0 ? "; and \(remaining) more" : ""
-            return "\(summary) \(uniqueMissingReferences.count) referenced image(s) are missing from the backup and unavailable offline: \(shown)\(more).\(manifestNote)"
+            message = "\(summary) \(uniqueMissingReferences.count) referenced image(s) are missing from the backup and unavailable offline: \(shown)\(more).\(manifestNote)"
         }
-        return summary + manifestNote
+        await progress("Saving the restored database…")
+        let localBackup = DatabaseBackup(
+            shareId: "",
+            baseId: "",
+            sourceUrl: "local",
+            lastSynced: ISO8601DateFormatter().string(from: Date()),
+            products: restoredBackup.products,
+            specifications: restoredBackup.specifications,
+            reviews: restoredBackup.reviews,
+            users: restoredBackup.users
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(localBackup).write(
+            to: mediaURL.deletingLastPathComponent().appendingPathComponent("database.json"),
+            options: .atomic
+        )
+        return BackupRestorePayload(backup: restoredBackup, message: message)
     }
 
     func importReviewNotes(from url: URL) throws -> String {
@@ -877,7 +957,63 @@ final class ProductStore: ObservableObject {
             .replacingOccurrences(of: "&gt;", with: ">")
     }
 
-    func makeBackup() throws -> URL {
+    func makeBackup() async throws -> URL {
+        backupProgressMessage = "Preparing database and review notes…"
+        let backup = DatabaseBackup(
+            shareId: "",
+            baseId: "",
+            sourceUrl: "local",
+            lastSynced: ISO8601DateFormatter().string(from: Date()),
+            products: products,
+            specifications: specifications,
+            reviews: reviews,
+            users: users
+        )
+        let mediaDirectory = mediaURL
+        let archiveURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "ProductCompare_Backup_\(Int(Date().timeIntervalSince1970)).zip"
+        )
+        let progressStore = self
+        let progress: BackupProgressHandler = { message in
+            await progressStore.updateBackupProgress(message)
+        }
+        return try await Task.detached(priority: .userInitiated) {
+            try await Self.createBackupArchiveWorker(
+                sourceBackup: backup,
+                mediaDirectory: mediaDirectory,
+                archiveURL: archiveURL,
+                progress: progress
+            )
+        }.value
+    }
+
+    nonisolated private static func createBackupArchiveWorker(
+        sourceBackup: DatabaseBackup,
+        mediaDirectory: URL,
+        archiveURL: URL,
+        progress: @escaping BackupProgressHandler
+    ) async throws -> URL {
+        await progress("Writing catalog database and review notes…")
+        var backup = sourceBackup
+        func sanitize(_ attachment: MediaAttachment) -> MediaAttachment {
+            var value = attachment
+            if let url = resolveLocalURL(for: value, mediaURL: mediaDirectory) {
+                value.url = url.lastPathComponent
+            } else if value.url.hasPrefix("app-media://") {
+                value.url = value.name
+            }
+            return value
+        }
+        for index in backup.products.indices {
+            backup.products[index].pictures = backup.products[index].pictures.map(sanitize)
+        }
+        for index in backup.specifications.indices {
+            backup.specifications[index].pictures = backup.specifications[index].pictures.map(sanitize)
+        }
+        for index in backup.reviews.indices {
+            backup.reviews[index].pictures = backup.reviews[index].pictures.map(sanitize)
+            backup.reviews[index].body = archiveCompatibleReviewHTML(backup.reviews[index].body)
+        }
         let staging = FileManager.default.temporaryDirectory.appendingPathComponent("ProductCompare_\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: staging) }
@@ -886,9 +1022,8 @@ final class ProductStore: ObservableObject {
         let media = staging.appendingPathComponent("review_images", isDirectory: true)
         try FileManager.default.createDirectory(at: media, withIntermediateDirectories: true)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let database = makeDatabaseBackup()
-        try encoder.encode(database).write(to: staging.appendingPathComponent("database.json"))
-        for (index, review) in reviews.enumerated() {
+        try encoder.encode(backup).write(to: staging.appendingPathComponent("database.json"))
+        for (index, review) in backup.reviews.enumerated() {
             let title = review.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let displayTitle = title.isEmpty ? "Review #\(review.reviewNumber)" : title
             let filenameTitle = Self.filenameSlug(displayTitle)
@@ -911,18 +1046,35 @@ final class ProductStore: ObservableObject {
             """
             try note.write(to: reviewNotes.appendingPathComponent(filename), atomically: true, encoding: .utf8)
         }
-        let allAttachments = products.flatMap(\.pictures) + specifications.flatMap(\.pictures) + reviews.flatMap(\.pictures)
         var copied = Set<String>()
-        for attachment in allAttachments {
-            guard let source = localURL(for: attachment), FileManager.default.fileExists(atPath: source.path) else { continue }
+        let attachments = backup.products.flatMap(\.pictures) +
+            backup.specifications.flatMap(\.pictures) +
+            backup.reviews.flatMap(\.pictures)
+        if !attachments.isEmpty {
+            await progress("Copying referenced local photos into the backup…")
+        }
+        for attachment in attachments {
+            guard let source = resolveLocalURL(for: attachment, mediaURL: mediaDirectory),
+                  FileManager.default.fileExists(atPath: source.path) else { continue }
             let filename = source.lastPathComponent
             guard copied.insert(filename).inserted else { continue }
             try FileManager.default.copyItem(at: source, to: media.appendingPathComponent(filename))
         }
-        let manifest = ManifestFile(appName: "ProductCompare", exportDate: ISO8601DateFormatter().string(from: Date()), productCount: products.count, specificationCount: specifications.count, reviewCount: reviews.count, userCount: users.count, pictureCount: copied.count, version: "1.0")
+        let manifest = ManifestFile(
+            appName: "ProductCompare",
+            exportDate: ISO8601DateFormatter().string(from: Date()),
+            productCount: backup.products.count,
+            specificationCount: backup.specifications.count,
+            reviewCount: backup.reviews.count,
+            userCount: backup.users.count,
+            pictureCount: copied.count,
+            version: "1.0"
+        )
         try encoder.encode(manifest).write(to: staging.appendingPathComponent("manifest.json"))
-        let archiveURL = documentsURL.appendingPathComponent("ProductCompare_Backup_\(Int(Date().timeIntervalSince1970)).zip")
-        try? FileManager.default.removeItem(at: archiveURL)
+        if FileManager.default.fileExists(atPath: archiveURL.path) {
+            try FileManager.default.removeItem(at: archiveURL)
+        }
+        await progress("Compressing backup data and photos into ZIP…")
         let archive = try Archive(url: archiveURL, accessMode: .create)
         for name in ["database.json", "manifest.json"] {
             let file = staging.appendingPathComponent(name)
@@ -946,6 +1098,10 @@ final class ProductStore: ObservableObject {
         let url = documentsURL.appendingPathComponent("ProductCompare_Backup_\(Int(Date().timeIntervalSince1970)).json")
         try encoder.encode(makeDatabaseBackup()).write(to: url, options: .atomic)
         return url
+    }
+
+    private func updateBackupProgress(_ message: String) {
+        backupProgressMessage = message
     }
 
     func clearAllData() throws {
@@ -1026,13 +1182,13 @@ final class ProductStore: ObservableObject {
         if let data = try? encoder.encode(backup) { try? data.write(to: databaseURL, options: .atomic) }
     }
 
-    private static func isMediaPath(_ path: String) -> Bool {
+    nonisolated private static func isMediaPath(_ path: String) -> Bool {
         let lower = path.lowercased().replacingOccurrences(of: "\\", with: "/")
         let ext = URL(fileURLWithPath: lower).pathExtension
         return ["images/", "pictures/", "review_images/", "attachments/", "media/", "files/"].contains(where: { lower.contains($0) }) || ["jpg", "jpeg", "png", "webp", "gif", "svg", "bmp", "avif", "ico"].contains(ext)
     }
 
-    private static func mediaCandidates(id: String, name: String, url: String) -> [String] {
+    nonisolated private static func mediaCandidates(id: String, name: String, url: String) -> [String] {
         let decodedURL = url.removingPercentEncoding ?? url
         let urlName = URLComponents(string: decodedURL)?.path.split(separator: "/").last.map(String.init)
             ?? URL(fileURLWithPath: decodedURL).lastPathComponent
@@ -1041,7 +1197,7 @@ final class ProductStore: ObservableObject {
             .filter { !$0.isEmpty }
     }
 
-    private static func mediaFolder(in url: String) -> String? {
+    nonisolated private static func mediaFolder(in url: String) -> String? {
         let path = (url.removingPercentEncoding ?? url).lowercased()
         return ["review_images", "pictures", "images", "attachments", "media", "files", "assets", "_files", "pics", "img"].first {
             path.contains("/\($0)/")
@@ -1082,7 +1238,7 @@ final class ProductStore: ObservableObject {
         return assets.first { matchesMediaName($0.name, candidate: filename) }
     }
 
-    private static func matchesMediaName(_ filename: String, candidate: String) -> Bool {
+    nonisolated private static func matchesMediaName(_ filename: String, candidate: String) -> Bool {
         let name = URL(fileURLWithPath: filename).lastPathComponent.lowercased()
         let target = URL(fileURLWithPath: candidate).lastPathComponent.lowercased()
         guard !target.isEmpty else { return false }
@@ -1204,7 +1360,7 @@ final class ProductStore: ObservableObject {
         )
     }
 
-    private static func archiveCompatibleReviewHTML(_ html: String) -> String {
+    nonisolated private static func archiveCompatibleReviewHTML(_ html: String) -> String {
         guard let regex = try? NSRegularExpression(
             pattern: #"(?i)(src\s*=\s*["'])app-media://([^"']+)(["'])"#
         ) else { return html }
@@ -1216,7 +1372,7 @@ final class ProductStore: ObservableObject {
         )
     }
 
-    private static func archiveCompatibleReviewBody(_ body: String) -> String {
+    nonisolated private static func archiveCompatibleReviewBody(_ body: String) -> String {
         let htmlCompatible = archiveCompatibleReviewHTML(body)
         guard let regex = try? NSRegularExpression(pattern: #"!\[([^\]]*)\]\(app-media://([^)]+)\)"#) else {
             return htmlCompatible
@@ -1233,7 +1389,7 @@ final class ProductStore: ObservableObject {
         return result
     }
 
-    private static func filenameSlug(_ value: String) -> String {
+    nonisolated private static func filenameSlug(_ value: String) -> String {
         value.lowercased()
             .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "_", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
@@ -1256,7 +1412,7 @@ final class ProductStore: ObservableObject {
         return filenames
     }
 
-    private static func remapReviewHTML(
+    nonisolated private static func remapReviewHTML(
         _ html: String,
         assets: [(archivePath: String, originalName: String, localName: String)]
     ) -> (html: String, missingFilenames: [String]) {

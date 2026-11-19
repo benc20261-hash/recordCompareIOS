@@ -18,6 +18,7 @@
 		A10000000000000000000009 /* DataBackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* DataBackupView.swift */; };
 		A10000000000000000000010 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000002 /* ZIPFoundation */; };
 		A10000000000000000000011 /* RichHTMLText.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000010 /* RichHTMLText.swift */; };
+		A10000000000000000000012 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +32,7 @@
 		B10000000000000000000008 /* ReviewsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewsView.swift; sourceTree = "<group>"; };
 		B10000000000000000000009 /* DataBackupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataBackupView.swift; sourceTree = "<group>"; };
 		B10000000000000000000010 /* RichHTMLText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichHTMLText.swift; sourceTree = "<group>"; };
+		B10000000000000000000011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C10000000000000000000001 /* RecordCompareIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RecordCompareIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -45,11 +47,23 @@
 		};
 /* End PBXFrameworksBuildPhase section */
 
+/* Begin PBXResourcesBuildPhase section */
+		F10000000000000000000012 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000012 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXGroup section */
 		E10000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
 				E10000000000000000000002 /* Sources/RecordCompareIOS */,
+				B10000000000000000000011 /* Assets.xcassets */,
 				E10000000000000000000004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -96,6 +110,7 @@
 			buildPhases = (
 				F10000000000000000000001 /* Sources */,
 				D10000000000000000000001 /* Frameworks */,
+				F10000000000000000000012 /* Resources */,
 			);
 			buildRules = (
 			);

@@ -1,6 +1,6 @@
 import Foundation
 
-struct MediaAttachment: Codable, Identifiable, Equatable {
+struct MediaAttachment: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var name: String
     var url: String
@@ -38,7 +38,7 @@ struct MediaAttachment: Codable, Identifiable, Equatable {
     }
 }
 
-struct Product: Codable, Identifiable, Equatable {
+struct Product: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var name: String
     var brand: String
@@ -79,7 +79,7 @@ struct Product: Codable, Identifiable, Equatable {
     }
 }
 
-struct Specification: Codable, Identifiable, Equatable {
+struct Specification: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var specName: String
     var details: String
@@ -151,7 +151,7 @@ func orderedSpecificationNames(for products: [Product], specifications: [Specifi
     return names
 }
 
-struct Review: Codable, Identifiable, Equatable {
+struct Review: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var reviewNumber: Int
     var title: String?
@@ -210,7 +210,7 @@ struct Review: Codable, Identifiable, Equatable {
     }
 }
 
-struct User: Codable, Identifiable, Equatable {
+struct User: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var name: String
     var email: String
@@ -236,7 +236,7 @@ struct User: Codable, Identifiable, Equatable {
     }
 }
 
-struct DatabaseBackup: Codable {
+struct DatabaseBackup: Codable, Sendable {
     var shareId: String?
     var baseId: String?
     var sourceUrl: String?
@@ -277,7 +277,7 @@ struct DatabaseBackup: Codable {
     }
 }
 
-struct ManifestFile: Codable {
+struct ManifestFile: Codable, Sendable {
     var appName: String
     var exportDate: String
     var productCount: Int

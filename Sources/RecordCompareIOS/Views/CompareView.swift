@@ -8,7 +8,9 @@ struct CompareView: View {
     @State private var bestValueModes: [String: BestValueMode] = [:]
     @State private var productSearch = ""
     @State private var productFilter = "All"
-    @State private var selectedComparisonImage: UIImage?
+    @State private var productFilterScope: CompareFilterScope = .all
+    @State private var comparisonPhotoViewer: ProductPhotoViewerRequest?
+    @State private var productToView: Product?
     @State private var selectedReview: Review?
     @State private var confirmClearComparison = false
     @State private var comparisonSlots: [String?] = [nil, nil]
@@ -28,49 +30,77 @@ struct CompareView: View {
         orderedSpecificationNames(for: selectedProducts, specifications: store.specifications)
     }
 
-    private var productFilterOptions: [String] {
-        var options = ["All"]
-        for value in store.allTags + store.allBrands + store.products.map(\.name)
-        where !options.contains(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) {
-            options.append(value)
+    private var productFilterOptions: [CompareFilterOption] {
+        let values: [(String, CompareFilterScope)] = switch productFilterScope {
+        case .all:
+            store.allTags.map { ($0, .tag) } +
+                store.allBrands.map { ($0, .brand) } +
+                store.products.map { ($0.name, .product) }
+        case .tag:
+            store.allTags.map { ($0, .tag) }
+        case .brand:
+            store.allBrands.map { ($0, .brand) }
+        case .product:
+            store.products.map { ($0.name, .product) }
         }
-        return options
+        var seen = Set<String>()
+        return values
+            .filter { seen.insert($0.0.lowercased()).inserted }
+            .map { CompareFilterOption(title: $0.0, scope: $0.1) }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    private var visibleProductFilterOptions: [CompareFilterOption] {
+        let query = productSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return productFilterOptions }
+        return productFilterOptions.filter { $0.title.localizedCaseInsensitiveContains(query) }
+    }
+
+    private var searchMatchingProducts: [Product] {
+        let query = productSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        return store.products.filter { product in
+            guard !query.isEmpty else { return true }
+            let specs = store.specifications.filter { specificationBelongs($0, to: product) }
+            let searchable = ([product.name, product.brand, product.overview] + product.tags +
+                specs.flatMap { [$0.specName, $0.details, $0.unit ?? ""] }).joined(separator: " ")
+            return searchable.localizedCaseInsensitiveContains(query)
+        }
     }
 
     private var pickerProducts: [Product] {
-        store.products.filter { product in
-            let matchesFilter = productFilter == "All" ||
-                product.tags.contains { $0.caseInsensitiveCompare(productFilter) == .orderedSame } ||
-                product.brand.caseInsensitiveCompare(productFilter) == .orderedSame ||
-                product.name.caseInsensitiveCompare(productFilter) == .orderedSame
-            let specs = store.specifications.filter { $0.productId == product.id || $0.productTitle == product.name }
-            let searchable = ([product.name, product.brand, product.overview] + product.tags +
-                specs.flatMap { [$0.specName, $0.details] }).joined(separator: " ")
-            return matchesFilter && (productSearch.isEmpty || searchable.localizedCaseInsensitiveContains(productSearch))
+        searchMatchingProducts.filter { product in
+            guard productFilter != "All" else { return true }
+            switch productFilterScope {
+            case .all:
+                return product.tags.contains { $0.caseInsensitiveCompare(productFilter) == .orderedSame } ||
+                    product.brand.caseInsensitiveCompare(productFilter) == .orderedSame ||
+                    product.name.caseInsensitiveCompare(productFilter) == .orderedSame
+            case .tag:
+                return product.tags.contains { $0.caseInsensitiveCompare(productFilter) == .orderedSame }
+            case .brand:
+                return product.brand.caseInsensitiveCompare(productFilter) == .orderedSame
+            case .product:
+                return product.name.caseInsensitiveCompare(productFilter) == .orderedSame
+            }
         }
     }
 
+    private var propertyDifferences: ComparisonPropertyDifferences {
+        ComparisonPropertyDifferences(products: selectedProducts)
+    }
+
     private var comparisonFieldSummary: (shown: Int, different: Int) {
-        let propertyValues = [
-            selectedProducts.map(\.brand),
-            selectedProducts.map { $0.tags.joined(separator: ", ") },
-            selectedProducts.map(\.overview),
-            selectedProducts.map { $0.pictures.count.description },
-            selectedProducts.map { product in
-                store.reviews.filter {
-                    $0.productIds.contains(product.id) ||
-                        $0.productTitles.contains { $0.caseInsensitiveCompare(product.name) == .orderedSame }
-                }.count.description
-            }
-        ]
-        var different = propertyValues.filter { Set($0).count > 1 }.count
+        let differences = propertyDifferences
+        var different = [differences.brand, differences.tags, differences.overview, differences.pictures]
+            .filter { $0 }
+            .count
         for name in comparisonSpecifications {
             let values = selectedProducts.map {
                 specification(for: $0, named: name)?.details.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
             }
             if Set(values).count > 1 { different += 1 }
         }
-        return (5 + comparisonSpecifications.count, different)
+        return (4 + comparisonSpecifications.count, different)
     }
 
     var body: some View {
@@ -89,30 +119,11 @@ struct CompareView: View {
                 comparisonMatrixContent
             }
             }
+            .pointerDragScrolling()
         }
         .background(Color(uiColor: .systemGray6))
-        .fullScreenCover(isPresented: Binding(
-            get: { selectedComparisonImage != nil },
-            set: { if !$0 { selectedComparisonImage = nil } }
-        )) {
-            if let selectedComparisonImage {
-                ZStack(alignment: .topTrailing) {
-                    Color.black.ignoresSafeArea()
-                    Image(uiImage: selectedComparisonImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    Button {
-                        self.selectedComparisonImage = nil
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 30))
-                            .foregroundStyle(.white)
-                            .padding(20)
-                    }
-                    .accessibilityLabel("Close photo")
-                }
-            }
+        .fullScreenCover(item: $comparisonPhotoViewer) { request in
+            ProductPhotoViewer(images: request.images, initialIndex: request.initialIndex)
         }
         .confirmationDialog("Clear all comparison products?", isPresented: $confirmClearComparison, titleVisibility: .visible) {
             Button("Clear comparison", role: .destructive) {
@@ -136,6 +147,9 @@ struct CompareView: View {
         .sheet(item: $selectedReview) { review in
             ProductReviewActionsSheet(review: review, startEditing: false)
         }
+        .sheet(item: $productToView) { product in
+            ProductDetailSheet(product: product)
+        }
         .onAppear {
             if !didInitializeSlots {
                 syncSlotsFromStore()
@@ -146,6 +160,9 @@ struct CompareView: View {
             if didInitializeSlots, comparisonSlots.compactMap({ $0 }) != store.comparedProductOrder {
                 syncSlotsFromStore()
             }
+        }
+        .onChange(of: productSearch) { _, query in
+            updateProductFilterScope(for: query)
         }
     }
 
@@ -245,15 +262,52 @@ struct CompareView: View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search products, brands, tags, or specs", text: $productSearch)
+                TextField("Search tags, brands, or products", text: $productSearch)
                     .textInputAutocapitalization(.never)
+                if !productSearch.isEmpty {
+                    Button {
+                        productSearch = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel("Clear product search")
+                }
             }
             .padding(10)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
-            Picker("Filter", selection: $productFilter) {
-                ForEach(productFilterOptions, id: \.self) { Text($0).tag($0) }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    ForEach(CompareFilterScope.allCases) { scope in
+                        let selected = productFilterScope == scope
+                        Button {
+                            productFilterScope = scope
+                            productFilter = "All"
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: scope.symbol)
+                                    .foregroundStyle(selected ? .white : scope.tint)
+                                Text("\(scope.title) (\(scope.count(tags: store.allTags.count, brands: store.allBrands.count, products: store.products.count)))")
+                            }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(selected ? .white : .primary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(selected ? Color.indigo : Color(uiColor: .systemGray6), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
-            .pickerStyle(.menu)
+            .pointerDragScrolling()
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    compareFilterOptionButton(title: "All", scope: .all)
+                    ForEach(visibleProductFilterOptions) { option in
+                        compareFilterOptionButton(title: option.title, scope: option.scope)
+                    }
+                }
+            }
             HStack {
                 Text("Comparison slots")
                     .font(.subheadline.weight(.semibold))
@@ -301,13 +355,61 @@ struct CompareView: View {
                         .opacity(!isSelected && store.comparedProductIDs.count >= 5 ? 0.5 : 1)
                     }
                 }
+                .pointerDragScrolling()
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+            }
+            if pickerProducts.isEmpty {
+                Text("No products match the current search and filter.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(Color(uiColor: .systemGray6))
+    }
+
+    private func compareFilterOptionButton(title: String, scope: CompareFilterScope) -> some View {
+        let selected = productFilter.caseInsensitiveCompare(title) == .orderedSame
+        return Button {
+            productFilter = title
+            productFilterScope = title == "All" ? productFilterScope : scope
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: scope.symbol)
+                    .foregroundStyle(selected ? .white : scope.tint)
+                Text(title)
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(selected ? .white : Color.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(selected ? Color.indigo : Color(uiColor: .systemGray6), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func updateProductFilterScope(for query: String) {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, productFilterScope != .all,
+              !productFilterOptions.contains(where: { $0.title.localizedCaseInsensitiveContains(query) }) else {
+            return
+        }
+        let nextScope: CompareFilterScope
+        if store.allTags.contains(where: { $0.localizedCaseInsensitiveContains(query) }) {
+            nextScope = .tag
+        } else if store.allBrands.contains(where: { $0.localizedCaseInsensitiveContains(query) }) {
+            nextScope = .brand
+        } else if store.products.contains(where: { $0.name.localizedCaseInsensitiveContains(query) }) {
+            nextScope = .product
+        } else {
+            nextScope = .all
+        }
+        productFilterScope = nextScope
+        productFilter = "All"
     }
 
     @ViewBuilder
@@ -321,6 +423,17 @@ struct CompareView: View {
                     .tracking(0.6)
                     .foregroundStyle(.secondary)
                 Spacer()
+                if let product {
+                    Button {
+                        productToView = product
+                    } label: {
+                        Label("View", systemImage: "eye")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("View \(product.name)")
+                }
                 if let product,
                    let orderIndex = selectedProducts.firstIndex(where: { $0.id == product.id }) {
                     Button {
@@ -424,9 +537,9 @@ struct CompareView: View {
             .font(.caption)
             .padding(12)
             .background(.white, in: RoundedRectangle(cornerRadius: 12))
-            comparisonPropertyCard("Brand", value: { $0.brand.isEmpty ? "—" : $0.brand })
-            comparisonPropertyCard("Tags", value: { $0.tags.isEmpty ? "—" : $0.tags.joined(separator: ", ") })
-            comparisonPropertyCard("Overview", value: { $0.overview })
+            comparisonPropertyCard("Brand", differs: propertyDifferences.brand, value: { $0.brand.isEmpty ? "—" : $0.brand })
+            comparisonPropertyCard("Tags", differs: propertyDifferences.tags, value: { $0.tags.isEmpty ? "—" : $0.tags.joined(separator: ", ") })
+            comparisonPropertyCard("Overview", differs: propertyDifferences.overview, value: { $0.overview })
             comparisonPicturesCard
             comparisonReviewsCard
             ForEach(comparisonSpecifications, id: \.self) { name in
@@ -457,6 +570,15 @@ struct CompareView: View {
                             .lineLimit(1)
                     }
                     Spacer(minLength: 4)
+                    Button {
+                        productToView = product
+                    } label: {
+                        Label("View", systemImage: "eye")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("View \(product.name)")
                     Button(role: .destructive) {
                         store.removeComparedProduct(product.id)
                     } label: {
@@ -477,12 +599,19 @@ struct CompareView: View {
 
     private func comparisonPropertyCard(
         _ title: String,
+        differs: Bool,
         value: @escaping (Product) -> String
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: propertySymbol(for: title))
-                .font(.headline)
-                .foregroundStyle(.indigo)
+            HStack {
+                Label(title, systemImage: propertySymbol(for: title))
+                    .font(.headline)
+                    .foregroundStyle(.indigo)
+                Spacer()
+                if differs { differenceBadge }
+            }
+            Divider()
+                .overlay(differs ? Color.yellow.opacity(0.5) : Color.clear)
             ForEach(selectedProducts) { product in
                 VStack(alignment: .leading, spacing: 7) {
                     Text(product.name)
@@ -511,8 +640,11 @@ struct CompareView: View {
             }
         }
         .padding(14)
-        .background(.white, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.gray.opacity(0.14), lineWidth: 1))
+        .background(differs ? Color.yellow.opacity(0.12) : Color.white, in: RoundedRectangle(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(differs ? Color.yellow.opacity(0.6) : Color.gray.opacity(0.14), lineWidth: 1)
+        }
     }
 
     private func propertySymbol(for title: String) -> String {
@@ -524,10 +656,17 @@ struct CompareView: View {
     }
 
     private var comparisonPicturesCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Pictures", systemImage: "photo")
-                .font(.headline)
-                .foregroundStyle(.indigo)
+        let differs = propertyDifferences.pictures
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Pictures", systemImage: "photo")
+                    .font(.headline)
+                    .foregroundStyle(.indigo)
+                Spacer()
+                if differs { differenceBadge }
+            }
+            Divider()
+                .overlay(differs ? Color.yellow.opacity(0.5) : Color.clear)
             ForEach(selectedProducts) { product in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(product.name.uppercased())
@@ -542,8 +681,21 @@ struct CompareView: View {
             }
         }
         .padding(14)
-        .background(.white, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.gray.opacity(0.16), lineWidth: 1))
+        .background(differs ? Color.yellow.opacity(0.12) : Color.white, in: RoundedRectangle(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(differs ? Color.yellow.opacity(0.6) : Color.gray.opacity(0.16), lineWidth: 1)
+        }
+    }
+
+    private var differenceBadge: some View {
+        Text("Different")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(Color(red: 0.69, green: 0.31, blue: 0.04))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.yellow.opacity(0.25), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.yellow.opacity(0.7), lineWidth: 1))
     }
 
     private var comparisonReviewsCard: some View {
@@ -597,7 +749,7 @@ struct CompareView: View {
                         if let url = store.localURL(for: attachment),
                            let image = UIImage(contentsOfFile: url.path) {
                             Button {
-                                selectedComparisonImage = image
+                                presentComparisonImage(attachment, from: attachments)
                             } label: {
                                 Image(uiImage: image)
                                     .resizable()
@@ -609,15 +761,26 @@ struct CompareView: View {
                             .accessibilityLabel("Open photo \(attachment.name)")
                         }
                     }
+
                 }
             }
         }
     }
 
+    private func presentComparisonImage(_ attachment: MediaAttachment, from attachments: [MediaAttachment]) {
+        let images = attachments.compactMap { item -> ProductPhotoViewerItem? in
+            guard let url = store.localURL(for: item),
+                  let image = UIImage(contentsOfFile: url.path) else { return nil }
+            return ProductPhotoViewerItem(id: item.id, name: item.name, image: image)
+        }
+        guard let index = images.firstIndex(where: { $0.id == attachment.id }) else { return }
+        comparisonPhotoViewer = ProductPhotoViewerRequest(images: images, initialIndex: index)
+    }
+
     @ViewBuilder
     private func comparisonRow(_ name: String) -> some View {
         let specs = selectedProducts.map { specification(for: $0, named: name) }
-        let parsed = specs.map { parseNumericValue($0, forceNumeric: numericOverrides[name] == true) }
+        let parsed = specs.map { parseNumericValue($0, overrideNumeric: numericOverrides[name]) }
         let numericCount = parsed.compactMap { $0 }.count
         let hasExplicitNumeric = specs.contains { $0?.isNumeric == true }
         let hasExplicitText = specs.contains { $0?.isNumeric == false }
@@ -626,7 +789,9 @@ struct CompareView: View {
         let mode = bestValueModes[name] ?? .higher
         let normalizedValues = parsed.compactMap { $0 }
         let units = Set(normalizedValues.map { $0.unit.lowercased() })
-        let valuesAreComparable = numeric && numericCount >= 2 && units.count <= 1
+        let showNumericBars = numeric && units.count <= 1
+        let valuesAreComparable = showNumericBars && numericCount >= 2
+        let maximumNumericValue = normalizedValues.map(\.value).max() ?? 0
         let bestValue = valuesAreComparable
             ? (mode == .higher
                 ? normalizedValues.map(\.value).max()
@@ -654,11 +819,12 @@ struct CompareView: View {
                     Button {
                         numericOverrides[name] = !numeric
                     } label: {
-                        Text(numeric ? "# Numeric" : "Aa Text")
-                            .font(.caption.weight(.semibold))
+                        Label(numeric ? "Number ON" : "Number OFF", systemImage: numeric ? "number" : "textformat")
+                            .font(.system(size: 10, weight: .bold))
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .accessibilityLabel("Numeric comparison \(numeric ? "on" : "off") for \(name)")
                     Spacer(minLength: 0)
                     if valuesAreComparable {
                         Picker("Best value", selection: Binding(
@@ -690,8 +856,9 @@ struct CompareView: View {
                         comparisonValueCell(
                             specs[index],
                             parsed: parsed[index],
-                            bestValue: bestValue,
-                            showBars: valuesAreComparable,
+                            numeric: numeric,
+                            maximumNumericValue: maximumNumericValue,
+                            showBars: showNumericBars,
                             isBest: bestValue != nil && parsed[index]?.value == bestValue
                         )
                         if let specification = specs[index], !specification.pictures.isEmpty {
@@ -714,35 +881,56 @@ struct CompareView: View {
     private func comparisonValueCell(
         _ specValue: Specification?,
         parsed: ParsedNumericValue?,
-        bestValue: Double?,
+        numeric: Bool,
+        maximumNumericValue: Double,
         showBars: Bool,
         isBest: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            let explicitUnit = specValue?.unit?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let displayUnit = explicitUnit?.isEmpty == false ? explicitUnit : parsed?.unit
-            RichHTMLText(
-                html: comparisonValueHTML(specValue, unit: displayUnit),
-                fontSize: 14,
-                textColor: isBest ? .systemIndigo : .label,
-                alignment: .left
-            )
+            if numeric,
+               specValue == nil || specValue?.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+                Text("No data")
+                    .font(.subheadline)
+                    .italic()
+                    .foregroundStyle(.tertiary)
+            } else if numeric, let parsed {
+                let numericText = parsed.value.rounded() == parsed.value && abs(parsed.value) <= Double(Int64.max)
+                    ? String(Int64(parsed.value))
+                    : String(parsed.value)
+                RichHTMLText(
+                    html: numericComparisonValueHTML(numericText, unit: parsed.unit),
+                    fontSize: 14,
+                    textColor: isBest ? .systemIndigo : .label,
+                    alignment: .left
+                )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
-            if showBars, let parsed, bestValue != nil {
-                let allValues = selectedProducts.compactMap {
-                    specification(for: $0, named: specValue?.specName ?? "")
-                        .flatMap { parseNumericValue($0)?.value }
-                }
-                let range = (allValues.max() ?? 1) - (allValues.min() ?? 0)
-                let fraction = range == 0 ? 1 : (parsed.value - (allValues.min() ?? 0)) / range
-                let adjusted = bestValueModes[specValue?.specName ?? ""] == .lower ? 1 - fraction : fraction
+            } else {
+                let explicitUnit = specValue?.unit?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let displayUnit = explicitUnit?.isEmpty == false ? explicitUnit : parsed?.unit
+                RichHTMLText(
+                    html: comparisonValueHTML(specValue, unit: displayUnit),
+                    fontSize: 14,
+                    textColor: isBest ? .systemIndigo : .label,
+                    alignment: .left
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            if showBars {
+                let ratio = parsed.map { maximumNumericValue > 0 ? min(1, max(0.04, $0.value / maximumNumericValue)) : 0 } ?? 0
                 GeometryReader { proxy in
-                    Capsule()
-                        .fill(isBest ? Color.green : Color.indigo.opacity(0.35))
-                        .frame(width: max(4, proxy.size.width * min(1, max(0, adjusted))))
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color(uiColor: .systemGray5))
+                        if parsed != nil, ratio > 0 {
+                            Capsule()
+                                .fill(isBest ? Color.green : Color(uiColor: .darkGray))
+                                .frame(width: proxy.size.width * ratio)
+                        }
+                    }
                 }
-                .frame(height: 5)
+                .frame(height: 8)
                 if isBest {
                     Label("Best", systemImage: "checkmark.circle.fill")
                         .font(.caption2.weight(.semibold))
@@ -759,6 +947,12 @@ struct CompareView: View {
         let cleanUnit = unit?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !cleanUnit.isEmpty, !detailsContainUnit(details, unit: cleanUnit) else { return details }
         return details + " " + RichHTMLText.unitBadgeMarker(for: cleanUnit)
+    }
+
+    private func numericComparisonValueHTML(_ value: String, unit: String) -> String {
+        let cleanUnit = unit.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanUnit.isEmpty else { return value }
+        return value + " " + RichHTMLText.unitBadgeMarker(for: cleanUnit)
     }
 
     private func detailsContainUnit(_ details: String, unit: String) -> Bool {
@@ -783,33 +977,82 @@ struct CompareView: View {
         }
     }
 
-    private func parseNumericValue(_ specification: Specification?, forceNumeric: Bool = false) -> ParsedNumericValue? {
+    private func parseNumericValue(_ specification: Specification?, overrideNumeric: Bool? = nil) -> ParsedNumericValue? {
         guard let specification else { return nil }
         let cleaned = specification.details
-            .replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: #"(?i)<br\s*/?>"#, with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)&lt;br\s*/?&gt;"#, with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)</(p|div|li|tr|h[1-6])>"#, with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)<(p|div|li|tr|h[1-6])\b[^>]*>"#, with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: #"<[^>]*>"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .joined(separator: "\n")
+            .replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return nil }
-        if specification.isNumeric == false && !forceNumeric { return nil }
-        if specification.isNumeric != true && (cleaned.contains("\n") || cleaned.count > 45) { return nil }
+        let effectiveNumeric = overrideNumeric ?? specification.isNumeric
+        if effectiveNumeric == false { return nil }
+        let explicitNumeric = effectiveNumeric == true
+        let preferredUnit = specification.unit?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let currencyPattern = #"^([$€£¥₹]|Rm|RM)\s*([0-9,]+(?:\.[0-9]+)?)"#
+        if let match = firstRegexMatch(currencyPattern, in: cleaned),
+           let currency = regexCapture(match, group: 1, in: cleaned),
+           let numberText = regexCapture(match, group: 2, in: cleaned),
+           let number = Double(numberText.replacingOccurrences(of: ",", with: "")) {
+            return ParsedNumericValue(
+                value: number,
+                unit: normalizeUnit(preferredUnit.isEmpty ? currency : preferredUnit)
+            )
+        }
 
-        let pattern = #"^\s*([$€£¥₹]|RM|Rm)?\s*(-?\d[\d,]*(?:\.\d+)?)\s*([^\s,;]*)?"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned)),
-              let numberRange = Range(match.range(at: 2), in: cleaned),
-              let number = Double(cleaned[numberRange].replacingOccurrences(of: ",", with: "")) else { return nil }
-        let currency = Range(match.range(at: 1), in: cleaned).map { String(cleaned[$0]) } ?? ""
-        let inlineUnit = Range(match.range(at: 3), in: cleaned).map { String(cleaned[$0]) } ?? ""
-        let unit = normalizeUnit(specification.unit?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? specification.unit!
-            : (currency.isEmpty ? inlineUnit : currency))
+        if !explicitNumeric && (cleaned.contains("\n") || cleaned.contains("•") || cleaned.count > 45) {
+            return nil
+        }
+        let pattern = explicitNumeric
+            ? #"([0-9,]+(?:\.[0-9]+)?)\s*([a-zA-Z$€£%°/"″]+)?"#
+            : #"^\s*([0-9,]+(?:\.[0-9]+)?)\s*([a-zA-Z$€£%°/"″]+)?"#
+        guard let match = firstRegexMatch(pattern, in: cleaned),
+              let numberText = regexCapture(match, group: 1, in: cleaned),
+              let number = Double(numberText.replacingOccurrences(of: ",", with: "")) else { return nil }
+        let inlineUnit = regexCapture(match, group: 2, in: cleaned) ?? ""
+        let namedUnit: String
+        if let bracketMatch = firstRegexMatch(#"\(([^)]+)\)"#, in: specification.specName) {
+            namedUnit = regexCapture(bracketMatch, group: 1, in: specification.specName) ?? ""
+        } else {
+            namedUnit = ""
+        }
+        let unit = normalizeUnit(
+            !preferredUnit.isEmpty ? preferredUnit : (!inlineUnit.isEmpty ? inlineUnit : namedUnit)
+        )
         return ParsedNumericValue(value: number, unit: unit)
+    }
+
+    private func firstRegexMatch(_ pattern: String, in text: String) -> NSTextCheckingResult? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        return regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text))
+    }
+
+    private func regexCapture(_ match: NSTextCheckingResult, group: Int, in text: String) -> String? {
+        guard match.range(at: group).location != NSNotFound,
+              let range = Range(match.range(at: group), in: text) else { return nil }
+        return String(text[range])
     }
 
     private func normalizeUnit(_ unit: String) -> String {
         switch unit.lowercased() {
-        case "gram", "grams": "g"
-        case "inches", "\"", "″": "inch"
+        case "g", "gram", "grams": "g"
+        case "kg": "kg"
+        case "cm": "cm"
+        case "mm": "mm"
+        case "inch", "inches", "\"", "″": "inch"
         case "year", "years": "year"
         case "month", "months": "month"
         case "hour", "hours", "hr", "hrs": "hrs"
@@ -827,5 +1070,69 @@ struct CompareView: View {
     private struct ParsedNumericValue {
         let value: Double
         let unit: String
+    }
+}
+
+private enum CompareFilterScope: String, CaseIterable, Identifiable {
+    case all
+    case tag
+    case brand
+    case product
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .tag: "Tags"
+        case .brand: "Brands"
+        case .product: "Product"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .all: "square.grid.2x2.fill"
+        case .tag: "tag.fill"
+        case .brand: "building.2.fill"
+        case .product: "shippingbox.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .all: .indigo
+        case .tag: .blue
+        case .brand: .orange
+        case .product: .green
+        }
+    }
+
+    func count(tags: Int, brands: Int, products: Int) -> Int {
+        switch self {
+        case .all: tags + brands + products
+        case .tag: tags
+        case .brand: brands
+        case .product: products
+        }
+    }
+}
+
+private struct CompareFilterOption: Identifiable {
+    let title: String
+    let scope: CompareFilterScope
+    var id: String { "\(scope.rawValue):\(title)" }
+}
+
+private struct ComparisonPropertyDifferences {
+    let brand: Bool
+    let tags: Bool
+    let overview: Bool
+    let pictures: Bool
+
+    init(products: [Product]) {
+        brand = Set(products.map { $0.brand.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }).count > 1
+        tags = Set(products.map { $0.tags.sorted().joined(separator: ",").lowercased() }).count > 1
+        overview = Set(products.map { $0.overview.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }).count > 1
+        pictures = Set(products.map { $0.pictures.map(\.url).sorted().joined(separator: ",") }).count > 1
     }
 }

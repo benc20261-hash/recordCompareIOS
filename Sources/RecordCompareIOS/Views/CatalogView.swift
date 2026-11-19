@@ -9,6 +9,7 @@ struct CatalogView: View {
     @State private var showingNewProduct = false
     @State private var tableLayout = false
     @State private var filterScope: CatalogFilterScope = .all
+    @State private var trayConfirmation: SelectionTrayConfirmation?
 
     private var filterOptions: [CatalogFilterOption] {
         let all = store.allTags.map { CatalogFilterOption(title: $0, scope: .tag) } +
@@ -32,6 +33,12 @@ struct CatalogView: View {
         return filterOptions.filter { $0.title.localizedCaseInsensitiveContains(query) }
     }
 
+    private var selectedComparisonProducts: [Product] {
+        store.comparedProductOrder.compactMap { id in
+            store.products.first { $0.id == id }
+        }
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 20) {
@@ -50,11 +57,163 @@ struct CatalogView: View {
                         .padding(.horizontal, 16)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 12)
+            .pointerDragScrolling()
         }
         .background(Color(uiColor: .systemGray6))
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !selectedComparisonProducts.isEmpty {
+                selectionTray
+            }
+        }
+        .confirmationDialog(
+            trayConfirmation?.title ?? "",
+            isPresented: Binding(
+                get: { trayConfirmation != nil },
+                set: { if !$0 { trayConfirmation = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let trayConfirmation {
+                Button(trayConfirmation.confirmationTitle, role: .destructive) {
+                    switch trayConfirmation {
+                    case .remove(let id, _):
+                        store.removeComparedProduct(id)
+                    case .clear:
+                        store.clearComparison()
+                    }
+                    self.trayConfirmation = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                trayConfirmation = nil
+            }
+        } message: {
+            if let trayConfirmation {
+                Text(trayConfirmation.message)
+            }
+        }
         .sheet(item: $selectedProduct) { product in ProductDetailSheet(product: product) }
         .sheet(isPresented: $showingNewProduct) { ProductWorkspaceSheet() }
+    }
+
+    private var selectionTray: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Label("\(selectedComparisonProducts.count) Selected", systemImage: "arrow.left.arrow.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(Color.white.opacity(0.1), in: Capsule())
+                    .fixedSize()
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 7) {
+                        ForEach(selectedComparisonProducts) { product in
+                            HStack(spacing: 6) {
+                                selectionThumbnail(product)
+                                Text(product.name)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .lineLimit(1)
+                                    .foregroundStyle(.white)
+                                Button {
+                                    trayConfirmation = .remove(id: product.id, name: product.name)
+                                } label: {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(.white.opacity(0.8))
+                                        .frame(width: 20, height: 24)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Remove \(product.name) from comparison")
+                            }
+                            .padding(.leading, 5)
+                            .padding(.trailing, 3)
+                            .padding(.vertical, 4)
+                            .background(Color(red: 0.12, green: 0.16, blue: 0.23), in: Capsule())
+                            .overlay(Capsule().stroke(Color(red: 0.2, green: 0.25, blue: 0.33), lineWidth: 1))
+                        }
+                    }
+                }
+                .pointerDragScrolling()
+            }
+
+            HStack(spacing: 8) {
+                Button(role: .destructive) {
+                    trayConfirmation = .clear(names: selectedComparisonProducts.map(\.name))
+                } label: {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.97, green: 0.44, blue: 0.45))
+                        .frame(width: 38, height: 38)
+                        .background(Color(red: 0.12, green: 0.16, blue: 0.23), in: RoundedRectangle(cornerRadius: 11))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear selected products")
+
+                Spacer(minLength: 0)
+
+                Button {
+                    store.selectedTab = .smartAdd
+                } label: {
+                    Label("Smart Add", systemImage: "sparkles")
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .frame(height: 36)
+                }
+                .buttonStyle(.bordered)
+                .tint(Color(red: 0.99, green: 0.82, blue: 0.33))
+
+                Button {
+                    store.selectedTab = .compare
+                } label: {
+                    Label("Compare Now", systemImage: "arrow.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .frame(height: 36)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.indigo)
+                .disabled(selectedComparisonProducts.count < 2)
+            }
+        }
+        .padding(12)
+        .background(
+            Color(red: 0.08, green: 0.11, blue: 0.2),
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.indigo.opacity(0.3), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.16), radius: 12, y: 4)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private func selectionThumbnail(_ product: Product) -> some View {
+        if let picture = product.pictures.first,
+           let url = store.localURL(for: picture),
+           let image = UIImage(contentsOfFile: url.path) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 24, height: 24)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+        } else {
+            Image(systemName: "shippingbox")
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.8))
+                .frame(width: 24, height: 24)
+                .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 5))
+        }
     }
 
     private var filterBar: some View {
@@ -148,6 +307,7 @@ struct CatalogView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16).background(.white)
         .overlay(alignment: .bottom) { Rectangle().fill(Color.gray.opacity(0.12)).frame(height: 1) }
     }
@@ -177,6 +337,40 @@ struct CatalogView: View {
             .background(selected ? Color.indigo : Color(uiColor: .systemGray6), in: Capsule())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private enum SelectionTrayConfirmation {
+    case remove(id: String, name: String)
+    case clear(names: [String])
+
+    var title: String {
+        switch self {
+        case .remove:
+            return "Remove from Comparison?"
+        case .clear:
+            return "Clear Comparison?"
+        }
+    }
+
+    var confirmationTitle: String {
+        switch self {
+        case .remove:
+            return "Remove"
+        case .clear:
+            return "Clear all"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .remove(_, let name):
+            return "Are you sure you want to remove \"\(name)\" from comparison?"
+        case .clear(let names):
+            let products = names.map { "\"\($0)\"" }.joined(separator: ", ")
+            let noun = names.count == 1 ? "product" : "products"
+            return "Are you sure you want to remove all \(names.count) \(noun) (\(products)) from comparison?"
+        }
     }
 }
 
@@ -283,6 +477,7 @@ private struct ProductTableRow: View {
             .accessibilityLabel("View \(product.name)")
         }
         .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(.white, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.gray.opacity(0.2), lineWidth: 1))
         .shadow(color: .black.opacity(0.045), radius: 5, x: 0, y: 2)
@@ -322,9 +517,6 @@ struct ProductCard: View {
                 Spacer()
                 Button {
                     store.toggleCompare(product.id)
-                    if store.comparedProductIDs.contains(product.id) {
-                        store.selectedTab = .compare
-                    }
                 } label: {
                     Label(
                         store.comparedProductIDs.contains(product.id) ? "Added" : "Compare",
@@ -424,6 +616,7 @@ struct ProductCard: View {
             }
             .padding(14)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(.white, in: RoundedRectangle(cornerRadius: 20))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.gray.opacity(0.24), lineWidth: 1))
         .shadow(color: .black.opacity(0.055), radius: 7, x: 0, y: 3)
@@ -459,7 +652,7 @@ struct ProductCard: View {
     }
 }
 
-private struct ProductDetailSheet: View {
+struct ProductDetailSheet: View {
     @EnvironmentObject private var store: ProductStore
     @Environment(\.dismiss) private var dismiss
     let product: Product
@@ -469,6 +662,10 @@ private struct ProductDetailSheet: View {
     @State private var confirmingProductDelete = false
     @State private var photoViewer: ProductPhotoViewerRequest?
     @State private var selectedReview: ProductReviewRequest?
+
+    init(product: Product) {
+        self.product = product
+    }
 
     private var currentProduct: Product {
         store.products.first(where: { $0.id == product.id }) ?? product
@@ -507,6 +704,7 @@ private struct ProductDetailSheet: View {
                     reviewsSection
                 }
                 .padding(16)
+                .pointerDragScrolling()
             }
             .background(Color(uiColor: .systemGray6))
             .navigationTitle(currentProduct.name)
@@ -548,6 +746,7 @@ private struct ProductDetailSheet: View {
                     store.deleteProduct(currentProduct.id)
                     dismiss()
                 }
+
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This also removes its specifications and clears its product links from reviews.")
@@ -713,6 +912,9 @@ private struct ProductDetailSheet: View {
                     .font(.caption.weight(.bold))
                     .frame(width: 25, height: 25)
                     .background(Color(uiColor: .systemGray5), in: RoundedRectangle(cornerRadius: 7))
+                Text(specification.specName.isEmpty ? "Specification" : specification.specName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
                 Spacer(minLength: 2)
                 Button {
                     editingSpecification = SpecificationEditorRequest(specification: specification)
@@ -730,29 +932,26 @@ private struct ProductDetailSheet: View {
                 .accessibilityLabel("Delete \(specification.specName)")
             }
 
-            HStack(alignment: .top, spacing: 10) {
-                Text(specification.specName.isEmpty ? "Value" : specification.specName)
-                    .font(.subheadline.weight(.medium))
+            if specification.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("No details added")
+                    .font(.subheadline)
+                    .italic()
                     .foregroundStyle(.secondary)
-                    .frame(width: 105, alignment: .leading)
-                VStack(alignment: .leading, spacing: 6) {
-                    if specification.details.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text("No details added")
-                            .font(.subheadline)
-                            .italic()
-                            .foregroundStyle(.secondary)
-                    } else {
-                        RichHTMLText(html: specification.details, fontSize: 14, textColor: .label, alignment: .left)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    RichHTMLText(
+                        html: specification.details,
+                        fontSize: 15,
+                        textColor: .label,
+                        alignment: .left
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
                     if let unit = specification.unit, !unit.isEmpty {
                         Text(unit)
-                            .font(.caption2.monospaced().weight(.semibold))
-                            .foregroundStyle(Color(uiColor: .secondaryLabel))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(Color(uiColor: .systemGray5), in: RoundedRectangle(cornerRadius: 5))
+                            .font(.caption.monospaced().weight(.medium))
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -965,22 +1164,23 @@ private struct ProductReviewRequest: Identifiable {
     }
 }
 
-private struct ProductPhotoViewerItem: Identifiable {
+struct ProductPhotoViewerItem: Identifiable {
     let id: String
     let name: String
     let image: UIImage
 }
 
-private struct ProductPhotoViewerRequest: Identifiable {
+struct ProductPhotoViewerRequest: Identifiable {
     let id = UUID()
     let images: [ProductPhotoViewerItem]
     let initialIndex: Int
 }
 
-private struct ProductPhotoViewer: View {
+struct ProductPhotoViewer: View {
     @Environment(\.dismiss) private var dismiss
     let images: [ProductPhotoViewerItem]
     @State private var selectedIndex: Int
+    @State private var zoomPercent = 100
 
     init(images: [ProductPhotoViewerItem], initialIndex: Int) {
         self.images = images
@@ -992,7 +1192,13 @@ private struct ProductPhotoViewer: View {
             Color.black.ignoresSafeArea()
             TabView(selection: $selectedIndex) {
                 ForEach(Array(images.enumerated()), id: \.element.id) { index, item in
-                    ZoomableProductPhoto(image: item.image)
+                    ZoomableProductPhoto(
+                        image: item.image,
+                        zoomPercent: Binding(
+                            get: { selectedIndex == index ? zoomPercent : 100 },
+                            set: { if selectedIndex == index { zoomPercent = $0 } }
+                        )
+                    )
                         .tag(index)
                         .ignoresSafeArea()
                 }
@@ -1023,13 +1229,49 @@ private struct ProductPhotoViewer: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)
+
+            VStack {
+                Spacer()
+                HStack(spacing: 18) {
+                    Button {
+                        zoomPercent = max(100, zoomPercent - 25)
+                    } label: {
+                        Image(systemName: "minus.magnifyingglass")
+                            .font(.system(size: 18, weight: .semibold))
+                    }
+                    .disabled(zoomPercent <= 100)
+                    .accessibilityLabel("Zoom out")
+
+                    Text("\(zoomPercent)%")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .frame(minWidth: 48)
+                        .accessibilityLabel("Zoom \(zoomPercent) percent")
+
+                    Button {
+                        zoomPercent = min(500, zoomPercent + 25)
+                    } label: {
+                        Image(systemName: "plus.magnifyingglass")
+                            .font(.system(size: 18, weight: .semibold))
+                    }
+                    .disabled(zoomPercent >= 500)
+                    .accessibilityLabel("Zoom in")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .background(.black.opacity(0.65), in: Capsule())
+                .padding(.bottom, 28)
+            }
         }
         .statusBarHidden()
+        .onChange(of: selectedIndex) { _, _ in zoomPercent = 100 }
     }
 }
 
-private struct ZoomableProductPhoto: UIViewRepresentable {
+struct ZoomableProductPhoto: UIViewRepresentable {
     let image: UIImage
+    @Binding var zoomPercent: Int
 
     func makeUIView(context: Context) -> UIScrollView {
         let scrollView = UIScrollView()
@@ -1037,6 +1279,10 @@ private struct ZoomableProductPhoto: UIViewRepresentable {
         scrollView.minimumZoomScale = 1
         scrollView.maximumZoomScale = 5
         scrollView.bouncesZoom = true
+        scrollView.panGestureRecognizer.allowedTouchTypes = [
+            NSNumber(value: UITouch.TouchType.direct.rawValue),
+            NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)
+        ]
         scrollView.backgroundColor = .black
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
@@ -1057,7 +1303,12 @@ private struct ZoomableProductPhoto: UIViewRepresentable {
 
     func updateUIView(_ scrollView: UIScrollView, context: Context) {
         guard let imageView = context.coordinator.imageView else { return }
+        context.coordinator.zoomPercent = $zoomPercent
         imageView.image = image
+        let requestedScale = min(5, max(1, CGFloat(zoomPercent) / 100))
+        if abs(scrollView.zoomScale - requestedScale) > 0.01 {
+            scrollView.setZoomScale(requestedScale, animated: true)
+        }
         if scrollView.zoomScale == scrollView.minimumZoomScale {
             imageView.frame = scrollView.bounds
             scrollView.contentSize = scrollView.bounds.size
@@ -1068,10 +1319,12 @@ private struct ZoomableProductPhoto: UIViewRepresentable {
 
     final class Coordinator: NSObject, UIScrollViewDelegate {
         weak var imageView: UIImageView?
+        var zoomPercent: Binding<Int>?
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            zoomPercent?.wrappedValue = Int((scrollView.zoomScale * 100).rounded())
             guard let imageView else { return }
             let horizontalInset = max(0, (scrollView.bounds.width - imageView.frame.width) / 2)
             let verticalInset = max(0, (scrollView.bounds.height - imageView.frame.height) / 2)
@@ -1094,7 +1347,7 @@ private struct ZoomableProductPhoto: UIViewRepresentable {
     }
 }
 
-private struct SpecificationEditorSheet: View {
+struct SpecificationEditorSheet: View {
     @EnvironmentObject private var store: ProductStore
     @Environment(\.dismiss) private var dismiss
     let product: Product
@@ -1109,6 +1362,7 @@ private struct SpecificationEditorSheet: View {
     @State private var showingLinkPrompt = false
     @State private var linkURL = ""
     @State private var errorText: String?
+    @State private var photoViewer: ProductPhotoViewerRequest?
 
     private let quickUnits = ["g", "kg", "inch", "cm", "mm", "year", "month", "mAh", "Hz", "$", "GB"]
 
@@ -1219,12 +1473,18 @@ private struct SpecificationEditorSheet: View {
                                         VStack(spacing: 5) {
                                             if let url = store.localURL(for: picture),
                                                let image = UIImage(contentsOfFile: url.path) {
-                                                Image(uiImage: image)
-                                                    .resizable()
-                                                    .scaledToFill()
-                                                    .frame(width: 88, height: 78)
-                                                    .clipped()
-                                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                                Button {
+                                                    presentImage(picture)
+                                                } label: {
+                                                    Image(uiImage: image)
+                                                        .resizable()
+                                                        .scaledToFill()
+                                                        .frame(width: 88, height: 78)
+                                                        .clipped()
+                                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                                }
+                                                .buttonStyle(.plain)
+                                                .accessibilityLabel("Open specification photo \(picture.name)")
                                             }
                                             Button("Remove", role: .destructive) {
                                                 pictures.removeAll { $0.id == picture.id }
@@ -1233,6 +1493,7 @@ private struct SpecificationEditorSheet: View {
                                         }
                                     }
                                 }
+                                .pointerDragScrolling()
                             }
                         }
                         if let errorText {
@@ -1242,10 +1503,14 @@ private struct SpecificationEditorSheet: View {
                     .detailCard()
                 }
                 .padding(16)
+                .pointerDragScrolling()
             }
             .background(Color(uiColor: .systemGray6))
             .navigationTitle(specification.specName.isEmpty ? "Add Specification" : "Edit Specification")
             .navigationBarTitleDisplayMode(.inline)
+            .fullScreenCover(item: $photoViewer) { request in
+                ProductPhotoViewer(images: request.images, initialIndex: request.initialIndex)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -1298,6 +1563,16 @@ private struct SpecificationEditorSheet: View {
         dismiss()
     }
 
+    private func presentImage(_ attachment: MediaAttachment) {
+        let images = pictures.compactMap { picture -> ProductPhotoViewerItem? in
+            guard let url = store.localURL(for: picture),
+                  let image = UIImage(contentsOfFile: url.path) else { return nil }
+            return ProductPhotoViewerItem(id: picture.id, name: picture.name, image: image)
+        }
+        guard let index = images.firstIndex(where: { $0.id == attachment.id }) else { return }
+        photoViewer = ProductPhotoViewerRequest(images: images, initialIndex: index)
+    }
+
     @MainActor
     private func importPhotos(_ items: [PhotosPickerItem]) async {
         defer { photoItems = [] }
@@ -1331,6 +1606,7 @@ private struct SpecificationFormattingToolbar: View {
                 tool("clear", accessibility: "Clear formatting", command: "clear", systemImage: "textformat")
             }
         }
+        .pointerDragScrolling()
     }
 
     private func tool(
@@ -1419,21 +1695,46 @@ private struct SpecificationRichTextEditor: UIViewRepresentable {
     private static func document(_ html: String) -> String {
         let safe = html
             .replacingOccurrences(of: #"(?is)<script\b[^>]*>.*?</script>"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"(?i)\s+on[a-z]+\s*=\s*(["']).*?\1"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"(?i)(href|src)\s*=\s*(["'])\s*javascript:[^"']*\2"#, with: "$1=\"#\"", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)</?script\b[^>]*>"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?is)<(iframe|object|embed)\b[^>]*>.*?</\1>"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)"#, with: "", options: .regularExpression)
+        let safeHTML = Self.removingUnsafeURLAttributes(from: safe)
         let content: String
         if let match = try? NSRegularExpression(pattern: #"(?is)<body[^>]*>(.*?)</body>"#)
-            .firstMatch(in: safe, range: NSRange(safe.startIndex..., in: safe)),
-           let range = Range(match.range(at: 1), in: safe) {
-            content = String(safe[range])
+            .firstMatch(in: safeHTML, range: NSRange(safeHTML.startIndex..., in: safeHTML)),
+           let range = Range(match.range(at: 1), in: safeHTML) {
+            content = String(safeHTML[range])
         } else {
-            content = safe
+            content = safeHTML
         }
         return """
         <!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
         <style>body{font-family:-apple-system,sans-serif;font-size:16px;line-height:1.45;color:#172033;margin:8px;min-height:145px;outline:none;overflow-wrap:anywhere}ul,ol{padding-left:24px}a{color:#4f46e5}</style>
         </head><body contenteditable="true">\(content)<script>document.body.addEventListener('input',()=>window.webkit.messageHandlers.specificationContent.postMessage(document.body.innerHTML));</script></body></html>
         """
+    }
+
+    private static func removingUnsafeURLAttributes(from html: String) -> String {
+        let pattern = #"(?i)\s+(href|src|xlink:href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return html }
+        let source = html as NSString
+        let matches = regex.matches(in: html, range: NSRange(location: 0, length: source.length))
+        guard !matches.isEmpty else { return html }
+        let result = NSMutableString(string: html)
+        for match in matches.reversed() {
+            let target = (2...4).compactMap { group -> String? in
+                guard match.range(at: group).location != NSNotFound else { return nil }
+                return source.substring(with: match.range(at: group))
+            }.first ?? ""
+            let decoded = RichHTMLText.decodeHTMLEntities(target)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let scheme = URL(string: decoded)?.scheme?.lowercased()
+            if ["javascript", "vbscript", "data"].contains(scheme ?? "") {
+                result.replaceCharacters(in: match.range, with: "")
+            }
+        }
+        return result as String
     }
 
     final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
@@ -1548,6 +1849,7 @@ private struct ProductWorkspaceSheet: View {
                     }
                 }
                 .padding(16)
+                .pointerDragScrolling()
             }
             .background(Color(uiColor: .systemGray6))
             .navigationTitle(product == nil ? "Add Product" : "Edit Product")
@@ -1642,7 +1944,9 @@ private struct ProductWorkspaceSheet: View {
                         .disabled(tagSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 if !selectedTags.isEmpty {
-                    FlexibleTagList(tags: selectedTags.sorted())
+                    FlexibleTagList(tags: selectedTags.sorted()) { tag in
+                        selectedTags.remove(tag)
+                    }
                     Button("Clear tags", role: .destructive) {
                         selectedTags.removeAll()
                     }
@@ -2036,18 +2340,31 @@ private struct ProductWorkspaceSheet: View {
 
 private struct FlexibleTagList: View {
     let tags: [String]
+    var onRemove: ((String) -> Void)?
     private let columns = [GridItem(.adaptive(minimum: 76), alignment: .leading)]
 
     var body: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 7) {
             ForEach(tags, id: \.self) { tag in
-                Text(tag)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 6)
-                    .background(Color.indigo.opacity(0.1), in: Capsule())
-                    .foregroundStyle(.indigo)
+                HStack(spacing: 5) {
+                    Text(tag)
+                        .font(.caption.weight(.medium))
+                        .lineLimit(1)
+                    if let onRemove {
+                        Button {
+                            onRemove(tag)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove tag \(tag)")
+                    }
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .background(Color.indigo.opacity(0.1), in: Capsule())
+                .foregroundStyle(.indigo)
             }
         }
     }
